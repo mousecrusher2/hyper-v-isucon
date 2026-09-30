@@ -6,6 +6,7 @@ param(
     [string]$SwitchName = 'Default Switch',
     [long]$MemoryStartupBytes = 4GB,
     [int]$ProcessorCount = 2,
+    [ValidateRange(0,1000000000)][uint64]$MaximumIOPS = 256000,
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
 )
 
@@ -37,8 +38,9 @@ $taskEncoding = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText("$taskVmDir\seed\meta-data", "instance-id: iid-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
 & "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso"
 
-New-VHD -Path $taskDisk -Dynamic -SizeBytes 64GB -BlockSizeBytes 1MB | Out-Null
+New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB | Out-Null
 $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes $MemoryStartupBytes -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
+Get-VMHardDiskDrive -VM $taskVM | Set-VMHardDiskDrive -MaximumIOPS $MaximumIOPS
 Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
 Disable-VMIntegrationService -VM $taskVM -Name VSS
 Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $false

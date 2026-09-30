@@ -1,6 +1,6 @@
 # 実機検証記録
 
-検証日: 2026-09-30（JST）
+検証日: 2026-09-30・2026-10-01（JST）
 
 ## 現行構成
 
@@ -63,6 +63,7 @@ localhost : ok=23 changed=19 unreachable=0 failed=0 skipped=0 rescued=0 ignored=
 変更後の`New-UbuntuVM.ps1`で、`vm-settings-check-01`へUbuntuをISOから無人インストールした。
 VMはGeneration 2・2 vCPU・固定4 GiB。インストール後にHyper-Vコンソールを無効化し、
 ディスクからの起動、SSH、passwordless sudo、cloud-init正常完了を確認した。
+この検証時のディスク容量は64 GiB。現行の作成設定は40 GiBに変更している。
 
 Hyper-V側でも次の設定を確認した。
 
@@ -77,6 +78,36 @@ Hyper-V側でも次の設定を確認した。
 - `.local/results/vm-settings-build.log`
 - `.local/results/vm-settings-check.json`
 - `.local/results/vm-settings-cleanup.json`
+
+### ディスク容量・IOPS設定（2026-10-01）
+
+[公式テンプレート](https://github.com/isucon/isucon13-portal/blob/master/isucon/portal/contest/templates/cloudformation_contest.yaml)は、
+競技用3台をgp3・40 GiBで作成し、IOPSの追加指定は行っていない。
+このため、制限値の基準には[gp3の標準3000 IOPS](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html)を使用した。
+
+初回はアプリ3台へ`MaximumIOPS=3000`、ベンチ用へ`MaximumIOPS=0`を渡すことを、子スクリプトを代替した検証で確認した。
+停止した一時VMに40 GiBのVHDXを接続し、Hyper-Vで3000と0を設定・読み取りできることも確認した。
+`MinimumIOPS`はどちらも0だった。検証用VMとディスクは削除済み。
+
+IOPSは[Hyper-Vの8 KiB換算](https://learn.microsoft.com/en-us/windows/win32/hyperv_v2/msvm-storageallocationsettingdata)で制限する。
+16 KiBのI/Oは2回分として数えるため、3000の設定ではgp3より低い上限になる。
+このため、現行設定はアプリ用を`MaximumIOPS=256000`へ変更した。
+gp3標準の125 MiB/sと、[EBSによる小さなI/Oの結合](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-io-characteristics.html)を考慮し、
+最小512 BのI/Oまで許容する保守的な上限として`125 MiB/s ÷ 512 B = 256000`を採用した。
+512 Bの倍数の読み書きでは、8 KiB換算カウントは転送量を512 Bで割った値を超えないため、
+125 MiB/s以下の読み書きをこの上限のために制限することはない。
+
+変更後のアプリ3台へ256000、ベンチ用へ0を渡すことを、子スクリプトを代替した検証で再確認した。
+上限の計算とPowerShellの構文も確認した。
+256000の実機設定確認とI/O負荷をかけた速度測定は行っていない。実性能はホストのストレージや同時負荷に依存する。
+
+記録:
+
+- `.local/results/four-vm-iops-check.log`
+- `.local/results/storage-qos-check.json`
+- `.local/results/storage-qos-cleanup.json`
+- `.local/results/four-vm-gp3-limit-check.log`
+- `.local/results/gp3-limit-calculation-check.log`
 
 ## 旧構成の検証記録
 

@@ -17,9 +17,9 @@ Set-StrictMode -Version Latest
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskMachines = @(
     foreach ($taskVMName in $ApplicationName) {
-        [pscustomobject]@{ Name = $taskVMName; Role = 'application'; Memory = $MemoryStartupBytes; CPUs = $ProcessorCount }
+        [pscustomobject]@{ Name = $taskVMName; Role = 'application'; Memory = $MemoryStartupBytes; CPUs = $ProcessorCount; MaximumIOPS = 256000 }
     }
-    [pscustomobject]@{ Name = $BenchmarkerName; Role = 'benchmarker'; Memory = $BenchmarkerMemoryStartupBytes; CPUs = $BenchmarkerProcessorCount }
+    [pscustomobject]@{ Name = $BenchmarkerName; Role = 'benchmarker'; Memory = $BenchmarkerMemoryStartupBytes; CPUs = $BenchmarkerProcessorCount; MaximumIOPS = 0 }
 )
 if ($taskMachines.Count -ne @($taskMachines.Name | Sort-Object -Unique).Count) { throw 'VM名が重複しています。' }
 foreach ($taskVMName in $taskMachines.Name) {
@@ -33,6 +33,7 @@ foreach ($taskMachine in $taskMachines) {
     $taskInstallParameters['Name'] = $taskMachine.Name
     $taskInstallParameters['MemoryStartupBytes'] = $taskMachine.Memory
     $taskInstallParameters['ProcessorCount'] = $taskMachine.CPUs
+    $taskInstallParameters['MaximumIOPS'] = $taskMachine.MaximumIOPS
     & "$PSScriptRoot\New-UbuntuVM.ps1" @taskInstallParameters | Out-Null
     & "$PSScriptRoot\Invoke-Isucon13Ansible.ps1" -VMName $taskMachine.Name -Role $taskMachine.Role
     Write-Host "ISUCON13の構築が完了しました: $($taskMachine.Name)"

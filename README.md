@@ -52,7 +52,7 @@ $vmName = 'isucon13-app02'
 .\scripts\New-UbuntuVM.ps1 -Name '<VM名>' -IsoPath '<ISOのパス>'
 ```
 
-ベンチ用VMの作成には`-MemoryStartupBytes 8GB -ProcessorCount 8`を追加する。
+ベンチ用VMの作成には`-MemoryStartupBytes 8GB -ProcessorCount 8 -MaximumIOPS 0`を追加する。
 Ubuntuのインストール後、上記の役割に応じたAnsibleコマンドを実行する。
 
 ### 任意: HTTPS応答を確認する
@@ -126,7 +126,8 @@ cd /home/ubuntu/isucon13/bench
 | SSH鍵・ログ・検証結果 | `.local/` |
 
 - アプリ用VMの既定値は各2 vCPU・固定メモリ4 GiB、ベンチ用VMは8 vCPU・固定メモリ8 GiB。
-- 全VMでGeneration 2、64 GiBのVHDX、Secure Boot無効を使用する。
+- 全VMでGeneration 2、40 GiBのVHDX、Secure Boot無効を使用する。
+- アプリ用VMのディスクは最大256000 IOPS（Hyper-Vの8 KiB換算）。ベンチ用VMはIOPS制限なし。
 - ボリュームシャドウコピー（VSS）とHyper-Vコンソールは無効。自動開始アクションはなし、自動停止アクションはシャットダウン。
 - 管理ユーザーは`ubuntu`。公開鍵SSHとパスワード不要のsudoを設定する。
 - ベンチは自己署名証明書を使えるよう、TLS証明書検証を省略する設定にする。
@@ -136,6 +137,8 @@ cd /home/ubuntu/isucon13/bench
 
 ### 動作上の制約
 
+- IOPS上限は、[gp3標準の3000 IOPS・125 MiB/s](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html)をこの制限によって下回らせないための保守的な値。[EBSが小さなI/Oを結合する場合](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-io-characteristics.html)も考慮し、`125 MiB/s ÷ 512 B = 256000`を採用している。
+- 実性能はホストのストレージや同時負荷に依存する。gp3と同じ性能を再現する設定ではない。
 - DNSにはAnsible実行時のVMのIPv4アドレスを設定する。DHCPでIPが変わった際の設定自動更新は未実装。
 - `--pretest-only`ではベンチ結果のJSONを作成しない。
 

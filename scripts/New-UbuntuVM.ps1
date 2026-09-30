@@ -27,13 +27,6 @@ $taskPublicKey = (Get-Content -LiteralPath $SshPublicKeyPath -Raw).Trim()
 if ($taskPublicKey -notmatch '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+) [A-Za-z0-9+/=]+( .*)?$') {
     throw 'SSH公開鍵の形式が不正です。'
 }
-$taskOscdimg = Get-Command oscdimg -ErrorAction SilentlyContinue
-if ($taskOscdimg) { $taskOscdimgPath = $taskOscdimg.Source }
-else {
-    $taskOscdimgPath = 'C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe'
-    if (-not (Test-Path -LiteralPath $taskOscdimgPath)) { throw 'Windows ADK Deployment Toolsのoscdimgが必要です。' }
-}
-
 New-Item -ItemType Directory -Path "$taskVmDir\seed" -Force | Out-Null
 $taskEncoding = [Text.UTF8Encoding]::new($false)
 $taskInstanceId = 'iid-' + [guid]::NewGuid().ToString()
@@ -51,8 +44,7 @@ ssh_pwauth: false
 "@
 [IO.File]::WriteAllText("$taskVmDir\seed\meta-data", $taskMetadata, $taskEncoding)
 [IO.File]::WriteAllText("$taskVmDir\seed\user-data", $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
-& $taskOscdimgPath -j2 -lcidata "$taskVmDir\seed" "$taskVmDir\seed.iso" | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) { throw 'VM用NoCloud CDの生成に失敗しました。' }
+& "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso"
 
 # Full file copy, never New-VHD -ParentPath or an imported VM configuration.
 $taskDisk = Join-Path $taskVmDir 'disk.vhdx'

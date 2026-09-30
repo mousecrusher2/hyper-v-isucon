@@ -11,7 +11,6 @@ Ubuntu Serverのgolden VHDXからVMを作成し、ISUCON13を構築する。
 
 - Windows＋Hyper-V、PowerShell 7.3以上、Windows OpenSSH Client。
 - 管理者またはHyper-V Administratorsグループの権限。
-- Windows ADKのDeployment Tools。
 - Ubuntu Server 22.04 amd64のインストーラーISO。
 - VMがDHCPでIPを取得でき、インターネットへ接続でき、WindowsホストからVMへSSH接続できる仮想スイッチ。既定は`Default Switch`。
 

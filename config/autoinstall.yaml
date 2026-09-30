@@ -1,0 +1,19 @@
+#cloud-config
+autoinstall:
+  version: 1
+  source:
+    id: ubuntu-server-minimal
+  storage:
+    layout:
+      name: direct
+  packages:
+    - linux-cloud-tools-virtual
+  ssh:
+    install-server: true
+    allow-pw: false
+  user-data:
+    hostname: {{hostname}}
+    users: [default]
+    ssh_authorized_keys:
+      - {{ssh_public_key}}
+  shutdown: poweroff

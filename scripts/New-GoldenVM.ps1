@@ -19,12 +19,6 @@ $taskVMPath = Join-Path $taskRoot '.local\hyperv'
 Get-VMSwitch -Name $SwitchName -ErrorAction Stop | Out-Null
 if (Get-VM -Name $Name -ErrorAction SilentlyContinue) { throw "VM $Name は既に存在します。" }
 if (Test-Path -LiteralPath $taskDisk) { throw "$taskDisk は既に存在します。" }
-$taskOscdimg = Get-Command oscdimg -ErrorAction SilentlyContinue
-$taskOscdimgPath = if ($taskOscdimg) { $taskOscdimg.Source } else {
-    'C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe'
-}
-if (-not (Test-Path -LiteralPath $taskOscdimgPath)) { throw 'Windows ADK Deployment Toolsのoscdimgが必要です。' }
-
 New-Item -ItemType Directory -Path $taskGoldenDir,(Split-Path -Parent $taskKey),$taskVMPath -Force | Out-Null
 if (-not (Test-Path -LiteralPath $taskKey)) {
     & ssh-keygen -q -t ed25519 -N '' -C 'hyper-isucon-local' -f $taskKey
@@ -35,44 +29,14 @@ if (-not (Test-Path -LiteralPath "$taskKey.pub")) { throw 'SSH公開鍵が見つ
 $taskSeedDir = Join-Path $taskRoot '.local\golden-seed'
 New-Item -ItemType Directory -Path $taskSeedDir -Force | Out-Null
 $taskPublicKey = (Get-Content -LiteralPath "$taskKey.pub" -Raw).Trim() | ConvertTo-Json -Compress
-$taskUserData = @"
-#cloud-config
-autoinstall:
-  version: 1
-  refresh-installer:
-    update: false
-  locale: en_US.UTF-8
-  keyboard:
-    layout: us
-  storage:
-    layout:
-      name: direct
-  identity:
-    hostname: $Name
-    username: ubuntu
-    password: "!"
-  ssh:
-    install-server: true
-    allow-pw: false
-    authorized-keys:
-      - $taskPublicKey
-  packages:
-    - linux-cloud-tools-virtual
-  user-data:
-    ssh_deletekeys: true
-  late-commands:
-    - 'echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /target/etc/sudoers.d/90-ubuntu'
-    - chmod 0440 /target/etc/sudoers.d/90-ubuntu
-    - curtin in-target --target=/target -- visudo -cf /etc/sudoers.d/90-ubuntu
-  shutdown: poweroff
-"@
+$taskUserData = (Get-Content -LiteralPath (Join-Path $taskRoot 'config\autoinstall.yaml') -Raw).
+    Replace('{{hostname}}', $Name).Replace('{{ssh_public_key}}', $taskPublicKey)
 $taskEncoding = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText((Join-Path $taskSeedDir 'user-data'), $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
 [IO.File]::WriteAllText((Join-Path $taskSeedDir 'meta-data'), "instance-id: iid-golden-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
 $taskSeedIso = Join-Path $taskRoot '.local\golden-seed.iso'
 if (Test-Path -LiteralPath $taskSeedIso) { Remove-Item -LiteralPath $taskSeedIso -Force }
-& $taskOscdimgPath -j2 -lcidata $taskSeedDir $taskSeedIso | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) { throw 'autoinstall用NoCloud CDの生成に失敗しました。' }
+& "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath $taskSeedDir -IsoPath $taskSeedIso
 
 New-VHD -Path $taskDisk -Dynamic -SizeBytes 64GB -BlockSizeBytes 1MB | Out-Null
 $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 4GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVMPath
@@ -99,13 +63,16 @@ if ($Start) {
     Start-Sleep -Seconds 1
     Send-GuestKey 27
     Start-Sleep -Seconds 1
-    Send-GuestText 'c'
+    # Edit the ISO's standard menu entry and add only the autoinstall flag.
+    Send-GuestText 'e'
     Start-Sleep -Seconds 1
-    foreach ($taskLine in @('linux /casper/vmlinuz autoinstall ---', 'initrd /casper/initrd', 'boot')) {
-        Send-GuestText $taskLine
-        Send-GuestKey 13
-        Start-Sleep -Seconds 1
-    }
+    Send-GuestKey 40 # Down: blank line
+    Send-GuestKey 40 # Down: gfxpayload
+    Send-GuestKey 40 # Down: linux
+    Send-GuestKey 35 # End
+    1..3 | ForEach-Object { Send-GuestKey 37 } # Before ---
+    Send-GuestText 'autoinstall '
+    Send-GuestKey 121 # F10: boot the existing entry
 }
 
 [pscustomobject]@{

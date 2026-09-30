@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Avoid Node 20.10/libuv io_uring hangs on Ubuntu's 5.15 kernel during builds.
+export UV_USE_IO_URING=0
+
 test "$(id -un)" = ubuntu
 sudo -n cloud-init status --wait --long
 sudo -n apt-get update
@@ -42,4 +45,5 @@ sed -i '/InsecureSkipVerify/s/false/true/' bench/cmd/bench/benchmarker.go bench/
 # Reuse official asset preparation and application provisioning.
 bash provisioning/ansible/make_latest_files.sh
 cd provisioning/ansible
-ansible-playbook -i inventory/localhost --limit application application.yml
+ansible-playbook -i inventory/localhost --limit application \
+    --extra-vars '{"ansible_become_flags":"-H -S -n --preserve-env=UV_USE_IO_URING"}' application.yml

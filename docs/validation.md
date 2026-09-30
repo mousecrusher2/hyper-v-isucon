@@ -4,6 +4,8 @@
 
 ## 条件
 
+以下は初回検証時の構成。autoinstall変更後の確認は後述する。
+
 | 項目 | 使用した構成 |
 | --- | --- |
 | ホスト | Windows 11 Pro＋Hyper-V、PowerShell 7.6.6 |
@@ -35,9 +37,9 @@
 | 成果物 | VHDX・Dynamic、Attached=False |
 
 成果物は`golden/ubuntu-server-22.04/disk.vhdx`。
-ISUCON13・Ansibleは含まない。最終版から起動したcloneでも未導入を確認した。
+ISUCON13・Ansibleは含まない。初回検証のgoldenから起動したcloneでも未導入を確認した。
 
-最終版goldenのSHA-256（clone作成前後で一致）:
+初回検証のgoldenのSHA-256（clone作成前後で一致）:
 
 ```text
 4CF62E21CB9BF1B0055A035BF04D829EDA8487D47EBB02FC7601CC54FC185AB6
@@ -58,7 +60,7 @@ SSH・sudo・UEFI起動も確認した。
 
 VM ID・MAC・SSH host key・instance-idもすべて異なった。
 両VMの自動checkpointは無効。
-goldenの再ビルド後、ubuntu-clone02は最終版goldenから作り直して検証した。
+goldenの再ビルド後、ubuntu-clone02はそのgoldenから作り直して検証した。
 
 記録: `.local/results/clone-verification.json`
 
@@ -121,10 +123,56 @@ SubjectとIssuerが一致し、期限は2036-09-27 00:29:01 UTC。
 - [vagrant-isucon](https://github.com/matsuu/vagrant-isucon/blob/master/isucon13-standalone/Vagrantfile)
 - [wsl-isucon](https://github.com/matsuu/wsl-isucon/blob/main/isucon13/scripts/01-provisioning.sh)
 
+## autoinstall変更後の再検証
+
+同じISOを使い、変更後の`Build-GoldenImage.ps1`を最初から実行した。
+無人インストール・起動確認・generalize・停止・golden保存まで終了コード0で完了した。
+
+| 確認 | 結果 |
+| --- | --- |
+| インストール元 | `ubuntu-server-minimal` |
+| 管理ユーザー | `user-data`の`users: [default]`で`ubuntu`を作成。公開鍵SSH・passwordless sudo成功 |
+| ディスク構成 | `direct`。EFI領域とext4領域を確認、LVMなし |
+| SSHパスワード認証 | 無効。`sshd -T`で`passwordauthentication no`を確認 |
+| ホスト名 | `autoinstall-check-01`・`autoinstall-check-02`、各seedの指定値と一致 |
+| cloud-init・cloneの独立性 | 2台とも正常完了。VM ID・MAC・machine-id・SSH host key・instance-idの重複なし |
+| NoCloud CD生成 | Windows標準のIMAPIで生成し、インストールとclone起動で使用できた |
+
+minimalにはIPv4通知用の`hv-kvp-daemon`が含まれなかったため、
+`linux-cloud-tools-virtual`を追加し、ホストからのIPv4取得を確認した。
+
+2 vCPU・4 GiBの`autoinstall-check-01`で、公式Ansibleも再検証した。
+最初の実行ではNode 20.10.0のnpmが`io_uring`内で停止した。
+カーネルの待機スタックを記録し、VMを再起動した。
+構築処理に`UV_USE_IO_URING=0`を設定し、Ansibleのsudo先にも引き継いで再実行した。
+この変数による無効化は[libuv 1.46の実装](https://github.com/libuv/libuv/blob/v1.46.0/src/unix/linux.c#L395)で確認できる。
+
+修正後の`Invoke-Isucon13Ansible.ps1`は終了コード0で完了した。
+
+```text
+localhost : ok=124 changed=38 unreachable=0 failed=0 skipped=0 rescued=0 ignored=0
+```
+
+mysql・pdns・nginx・isupipe-goのactive、証明書検証付きHTTPSのHTTP 200、
+初期化APIの`{"language":"golang"}`、DNSの`172.31.79.15`応答を確認した。
+今回の構成では負荷ベンチは再実行していない。上記のスコアは初回検証時の記録。
+
+記録:
+
+- `.local/results/autoinstall-minimal-verified-build.log`
+- `.local/results/autoinstall-minimal-clone-verification.json`
+- `.local/results/autoinstall-minimal-npm-kernel.log`
+- `.local/logs/ansible-autoinstall-check-01-20260930-212219.log`
+- `.local/results/autoinstall-minimal-application.log`
+- `.local/results/autoinstall-minimal-cleanup.json`
+
 ## 検証後の削除
 
 2026-09-30に、検証用VMの`ubuntu-clone01`・`ubuntu-clone02`を停止し、VM登録と関連ファイルを削除した。
 golden VHDXも削除済み。スクリプトと検証ログは残している。
+
+再検証の`autoinstall-check-01`・`autoinstall-check-02`、作成したgolden VHDXと関連ファイルも削除した。
+Hyper-Vに残っているのは、今回の検証対象ではない`uefi-test`（停止中）のみ。
 
 ## 残る事項
 

@@ -2,7 +2,33 @@
 
 検証日: 2026-09-30（JST）
 
-## 条件
+## 現行構成
+
+`New-Isucon13VM.ps1`で、各VMをISOから無人インストールし、そのVMに公式Ansibleを実行する。
+
+`New-UbuntuVM.ps1`を使い、`direct-install-check-01`へUbuntuを直接インストールした。
+ISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`、VMはGeneration 2・2 vCPU・固定4 GiB。
+インストール、ISO解除、ディスクからの起動まで無人で完了した。
+
+起動確認用のSSHコマンドでCRLFの問題が見つかったため、LFに統一する処理を追加した。
+同じVMでSSH・passwordless sudo・cloud-init正常完了・指定ホスト名・minimal構成・LVMなし・SSHパスワード認証無効を確認した。
+
+今回の実機確認範囲はUbuntuの起動確認まで。
+公式Ansible・HTTPS・DNSの結果は、下記の同じminimal構成での検証記録を参照。
+
+検証用VMとディスクは削除済み。
+
+記録:
+
+- `.local/results/direct-install-build.log`
+- `.local/results/direct-install-check.log`
+- `.local/results/direct-install-cleanup.json`
+
+## 旧構成の検証記録
+
+以下はコミット`817cafd`までの旧構成の検証記録。
+
+### 条件
 
 以下は初回検証時の構成。autoinstall変更後の確認は後述する。
 
@@ -19,7 +45,7 @@
 各VMのディスクは、golden VHDXをフルコピーして作成した。
 インストーラーの手動操作も行っていない。
 
-## golden作成
+### golden作成
 
 `Build-GoldenImage.ps1`を最初から実行し、終了コード0で完了した。
 
@@ -47,7 +73,7 @@ ISUCON13・Ansibleは含まない。初回検証のgoldenから起動したclone
 
 ログ: `.local/results/golden-build-final.log`
 
-## cloneの独立性
+### cloneの独立性
 
 `New-UbuntuVM.ps1`によるフルコピーと`Test-UbuntuClones.ps1`による検証に成功した。
 両VMのNoCloud instance-idは各seedの指定値と一致し、cloud-initはerrorsなしで完了した。
@@ -64,7 +90,7 @@ goldenの再ビルド後、ubuntu-clone02はそのgoldenから作り直して検
 
 記録: `.local/results/clone-verification.json`
 
-## cloneへの公式Ansible
+### cloneへの公式Ansible
 
 `Invoke-Isucon13Ansible.ps1 -VMName ubuntu-clone01`で完了した。
 公式の`make_latest_files.sh`と`application.yml`を使用した。
@@ -90,7 +116,7 @@ localhost : ok=124 changed=36 unreachable=0 failed=0 skipped=0 rescued=0 ignored
 - `.local/results/test-domain-check.log`
 - `.local/results/host-test-domain-check.log`
 
-## .test・自己署名TLS
+### .test・自己署名TLS
 
 使用するドメインは`*.u.isucon.test`・`*.t.isucon.test`。
 両方についてRSA 2048 bit、SAN付きの自己署名証明書を生成した。
@@ -123,7 +149,7 @@ SubjectとIssuerが一致し、期限は2036-09-27 00:29:01 UTC。
 - [vagrant-isucon](https://github.com/matsuu/vagrant-isucon/blob/master/isucon13-standalone/Vagrantfile)
 - [wsl-isucon](https://github.com/matsuu/wsl-isucon/blob/main/isucon13/scripts/01-provisioning.sh)
 
-## autoinstall変更後の再検証
+### autoinstall変更後の再検証
 
 同じISOを使い、変更後の`Build-GoldenImage.ps1`を最初から実行した。
 無人インストール・起動確認・generalize・停止・golden保存まで終了コード0で完了した。
@@ -166,7 +192,7 @@ mysql・pdns・nginx・isupipe-goのactive、証明書検証付きHTTPSのHTTP 2
 - `.local/results/autoinstall-minimal-application.log`
 - `.local/results/autoinstall-minimal-cleanup.json`
 
-## 検証後の削除
+### 検証後の削除
 
 2026-09-30に、検証用VMの`ubuntu-clone01`・`ubuntu-clone02`を停止し、VM登録と関連ファイルを削除した。
 golden VHDXも削除済み。スクリプトと検証ログは残している。
@@ -174,7 +200,7 @@ golden VHDXも削除済み。スクリプトと検証ログは残している。
 再検証の`autoinstall-check-01`・`autoinstall-check-02`、作成したgolden VHDXと関連ファイルも削除した。
 Hyper-Vに残っているのは、今回の検証対象ではない`uefi-test`（停止中）のみ。
 
-## 残る事項
+### 残る事項
 
 - 自己署名証明書をブラウザで使うには、証明書を信頼するか警告を許可する必要がある。
 - Hyper-VではAWSのpublic IP取得処理が働かない。現在はAnsible実行時のclone IPv4が設定される。DHCPでIPが変わった場合の更新方法は未実装。

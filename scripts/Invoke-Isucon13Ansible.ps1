@@ -11,20 +11,20 @@ $PSNativeCommandArgumentPassing = 'Standard'
 $taskRoot = Split-Path -Parent $PSScriptRoot
 if (-not $IdentityFile) { $IdentityFile = Join-Path $taskRoot '.local\ssh\id_ed25519' }
 $taskVM = Get-VM -Name $VMName
-if ($taskVM.State -ne 'Running') { throw '起動中のcloneを指定してください。' }
+if ($taskVM.State -ne 'Running') { throw '起動中のVMを指定してください。' }
 $taskDisk = @(Get-VMHardDiskDrive -VM $taskVM)
-$taskCloneRoot = Join-Path $taskRoot 'vm'
-if ($taskDisk.Count -ne 1 -or -not [IO.Path]::GetFullPath($taskDisk[0].Path).StartsWith($taskCloneRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
-    throw 'New-UbuntuVM.ps1で作成したcloneを指定してください。'
+$taskVmRoot = Join-Path $taskRoot 'vm'
+if ($taskDisk.Count -ne 1 -or -not [IO.Path]::GetFullPath($taskDisk[0].Path).StartsWith($taskVmRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'New-UbuntuVM.ps1で作成したVMを指定してください。'
 }
 $taskInfo = Get-VHD -Path $taskDisk[0].Path
-if ($taskInfo.VhdFormat -ne 'VHDX' -or $taskInfo.ParentPath) { throw 'cloneのディスクが独立したVHDXではありません。' }
+if ($taskInfo.VhdFormat -ne 'VHDX' -or $taskInfo.ParentPath) { throw 'VMのディスクが独立したVHDXではありません。' }
 $taskDeadline = (Get-Date).AddMinutes(5)
 do {
     $taskIP = (Get-VMNetworkAdapter -VM $taskVM).IPAddresses |
         Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -notmatch '^169\.254\.' } | Select-Object -First 1
     if ($taskIP) { break }
-    if ((Get-Date) -ge $taskDeadline) { throw 'cloneのIPv4取得がタイムアウトしました。' }
+    if ((Get-Date) -ge $taskDeadline) { throw 'VMのIPv4取得がタイムアウトしました。' }
     Start-Sleep -Seconds 3
 } while ($true)
 

@@ -1,6 +1,6 @@
 # Hyper-V ISUCON13 検証環境
 
-Ubuntu Serverのgolden VHDXからVMを作成し、ISUCON13を構築する。
+Ubuntu Server ISOからVMを作成し、ISUCON13を構築する。
 使用するドメインは`*.u.isucon.test`・`*.t.isucon.test`、TLS証明書は自己署名証明書。
 
 ## ユーザーが行う操作
@@ -12,55 +12,32 @@ Ubuntu Serverのgolden VHDXからVMを作成し、ISUCON13を構築する。
 - Windows＋Hyper-V、PowerShell 7.3以上、Windows OpenSSH Client。
 - 管理者またはHyper-V Administratorsグループの権限。
 - Ubuntu Server 22.04 amd64のインストーラーISO。
-- VMがDHCPでIPを取得でき、インターネットへ接続でき、WindowsホストからVMへSSH接続できる仮想スイッチ。既定は`Default Switch`。
 
 以下の構築コマンドは、WindowsのPowerShellでリポジトリのルートディレクトリから実行する。
 
-### 1. goldenを作成する
+### VMを構築する
 
-使用するISOを指定して実行する。goldenを作成済みの場合は手順2へ進む。
+新規作成するVM名と、使用するISOを指定して実行する。
+`-Name`と`-IsoPath`は必須。VM名には未使用の名前を選ぶ。
 
 ```powershell
-.\scripts\Build-GoldenImage.ps1 -IsoPath 'D:\iso\ubuntu-22.04.5-live-server-amd64.iso'
+$vmName = 'isucon13-vm01'
+.\scripts\New-Isucon13VM.ps1 -Name $vmName -IsoPath 'D:\iso\ubuntu-22.04.5-live-server-amd64.iso'
 ```
 
 ISOが別の場所にある場合は、`-IsoPath`の値を変更する。
-コマンドの完了を待ってから、次の手順へ進む。
+仮想スイッチを変更する場合は、`-SwitchName 'スイッチ名'`を追加する。省略時は`Default Switch`を使用する。
 
-### 2. goldenを指定してclone VMを作成する
+このコマンドが正常終了すれば、構築は完了。
+VMを増やす場合は、VM名を変えて同じコマンドを実行する。
 
-使用するgolden VHDXのパスを`$golden`に、新規作成するVM名を`$vmName`に指定する。
-`-GoldenVhdxPath`と`-Name`は必須。VM名には未使用の名前を選ぶ。
+### Ansibleで失敗した場合の再実行
 
-```powershell
-$golden = (Resolve-Path '.\golden\ubuntu-server-22.04\disk.vhdx').Path
-$vmName = 'isucon13-vm01'
-.\scripts\New-UbuntuVM.ps1 -Name $vmName -GoldenVhdxPath $golden -Start
-```
-
-上のgoldenパスは、手順1で生成されるファイルの保存先。
-別の場所に保存したgoldenを使う場合は、`Resolve-Path`へ渡すパスを変更する。
-`-Start`を付けてVMを起動する。
-
-作成されたVMの設定用CD（`seed.iso`）は、接続したまま使う。
-
-### 3. 対象VMを指定してISUCON13を構築する
-
-手順2で指定したVM名を使って実行する。
+Ubuntuのインストールが完了し、Ansibleで失敗した場合は、対象VMを起動した状態で次を実行する。
+再実行するとDBは初期化される。
 
 ```powershell
 .\scripts\Invoke-Isucon13Ansible.ps1 -VMName $vmName
-```
-
-このコマンドが正常終了すれば、構築は完了。
-VMを増やす場合は、VM名を変えて手順2と3を繰り返す。
-
-### 任意: cloneの独立性を確認する
-
-2台以上のVMを作成した場合に、確認したいVM名を指定して実行する。
-
-```powershell
-.\scripts\Test-UbuntuClones.ps1 -VMName isucon13-vm01,isucon13-vm02
 ```
 
 ### 任意: HTTPS応答を確認する
@@ -108,32 +85,24 @@ cd /home/ubuntu/isucon13/bench
 
 ## スクリプトが自動で行う処理
 
-この節は処理内容の説明。
-
 | スクリプト | 自動で行う処理 |
 | --- | --- |
-| `Build-GoldenImage.ps1` | Ubuntuの無人インストール、SSH・sudoの確認、複製の準備、VM停止、golden VHDXの保存 |
-| `New-UbuntuVM.ps1` | 指定されたgoldenのフルコピー、新規VMの作成、SSHログインの設定。`-Start`指定時はVMを起動 |
+| `New-Isucon13VM.ps1` | VM作成からUbuntuのインストール、ISUCON13の構築までを順に実行 |
+| `New-UbuntuVM.ps1` | 新規VMの作成、Ubuntuの無人インストール、SSH・sudo・cloud-initの確認 |
 | `Invoke-Isucon13Ansible.ps1` | 必要なソフトウェアと公式ソースの取得、.test・自己署名証明書の設定、ビルド、公式Ansibleによるサービスの設定・起動 |
-| `Test-UbuntuClones.ps1` | cloud-init・SSH・sudoの確認と、VM間で各種IDが重複していないことの検証 |
 
-### 内部で呼び出されるスクリプト
-
-- `Build-GoldenImage.ps1`は、`New-GoldenVM.ps1`でVM作成と無人インストールを行い、起動確認後に`Complete-GoldenImage.ps1`で複製の準備と停止を行う。
-- `Complete-GoldenImage.ps1`は、Ubuntu内で`scripts/guest/generalize-ubuntu.sh`を実行する。停止後、作成用VMの登録を解除してVHDXを残す。
-- `Invoke-Isucon13Ansible.ps1`は、Ubuntu内で`scripts/guest/provision-isucon13.sh`を実行する。
+`New-Isucon13VM.ps1`は、`New-UbuntuVM.ps1`の完了後に`Invoke-Isucon13Ansible.ps1`を呼び出す。
+`Invoke-Isucon13Ansible.ps1`は、Ubuntu内で`scripts/guest/provision-isucon13.sh`を実行する。
 
 ### 生成物と既定の設定
 
 | 生成物 | 保存先 |
 | --- | --- |
-| golden VHDX | `golden/ubuntu-server-22.04/disk.vhdx` |
-| cloneのディスク・VM設定 | `vm/<VM名>/` |
+| VMのディスク・設定 | `vm/<VM名>/` |
 | SSH鍵・ログ・検証結果 | `.local/` |
 
 - 作成するVMの既定値はGeneration 2、2 vCPU、固定メモリ4 GiB、64 GiBのVHDX、Secure Boot無効。
 - 管理ユーザーは`ubuntu`。公開鍵SSHとパスワード不要のsudoを設定する。
-- cloneごとに異なるVM ID・MACアドレスを割り当て、初回起動時にmachine-idとSSH host keyを生成する。
 - ベンチは自己署名証明書を使えるよう、TLS証明書検証を省略する設定にする。
 - 同名のVMや作成先のディスクが既にある場合は、上書きせずエラーで終了する。
 - `Invoke-Isucon13Ansible.ps1`の再実行時には、証明書の再生成とDBの初期化も行う。
@@ -146,8 +115,7 @@ cd /home/ubuntu/isucon13/bench
 
 ## 検証記録・参考
 
-2026-09-30に、無人インストール、golden作成、2台のclone、公式Ansible、HTTPS・DNS、通常の負荷ベンチまで実機で確認した。
-ベンチ結果は`pass: true`、スコア16845。条件とログは[検証記録](docs/validation.md)を参照。
+検証条件と結果は[検証記録](docs/validation.md)を参照。
 
 - [公式ISUCON13](https://github.com/isucon/isucon13)
 - [vagrant-isuconのVagrantfile](https://github.com/matsuu/vagrant-isucon/blob/master/isucon13-standalone/Vagrantfile)

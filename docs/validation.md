@@ -4,7 +4,8 @@
 
 ## 現行構成
 
-`New-Isucon13VM.ps1`で、各VMをISOから無人インストールし、そのVMに公式Ansibleを実行する。
+`New-Isucon13VM.ps1`で、アプリ用3台・ベンチ用1台をISOから無人インストールし、
+各VMに役割に応じた公式Ansibleを実行する。
 
 `New-UbuntuVM.ps1`を使い、`direct-install-check-01`へUbuntuを直接インストールした。
 ISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`、VMはGeneration 2・2 vCPU・固定4 GiB。
@@ -13,7 +14,7 @@ ISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`、VMはGeneration 2・2 vCPU
 起動確認用のSSHコマンドでCRLFの問題が見つかったため、LFに統一する処理を追加した。
 同じVMでSSH・passwordless sudo・cloud-init正常完了・指定ホスト名・minimal構成・LVMなし・SSHパスワード認証無効を確認した。
 
-今回の実機確認範囲はUbuntuの起動確認まで。
+`direct-install-check-01`での実機確認範囲はUbuntuの起動確認まで。
 公式Ansible・HTTPS・DNSの結果は、下記の同じminimal構成での検証記録を参照。
 
 検証用VMとディスクは削除済み。
@@ -23,6 +24,39 @@ ISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`、VMはGeneration 2・2 vCPU
 - `.local/results/direct-install-build.log`
 - `.local/results/direct-install-check.log`
 - `.local/results/direct-install-cleanup.json`
+
+### 4台構成とベンチ用VM
+
+`New-Isucon13VM.ps1`の既定構成をアプリ3台＋ベンチ1台に変更した。
+子スクリプトを検証用の代替に置き換え、次を確認した。
+
+- 4台それぞれで、Ubuntuインストール後にAnsibleを呼び出す。
+- アプリ3台は`application`、ベンチ1台は`benchmarker`を指定する。
+- 既定値はアプリ各2 vCPU・4 GiB、ベンチ8 vCPU・8 GiB。指定した名前・資源・ISO・スイッチ・タイムアウトも引き継ぐ。
+- 名前の重複・既存VM・アプリ台数の不一致は、VM作成前にエラーになる。
+- 構築に失敗すると、後続VMの作成を中断する。
+
+実機では`benchmark-role-check-01`を8 vCPU・8 GiBでISOから作成し、
+`Invoke-Isucon13Ansible.ps1 -Role benchmarker`を実行した。
+公式の`benchmark.yml`は終了コード0で完了した。
+
+```text
+localhost : ok=23 changed=19 unreachable=0 failed=0 skipped=0 rescued=0 ignored=0
+```
+
+`/home/isucon/bench_linux_amd64 run --help`の正常終了、既定ターゲットの`.test`ドメイン、
+自己署名TLS用の設定を確認した。Nodeとアプリ用サービスは導入されていない。
+4台すべての実機構築と、別VM間での負荷ベンチは今回実行していない。
+
+検証用VMとディスクは削除済み。
+
+記録:
+
+- `.local/results/four-vm-orchestration-check.log`
+- `.local/results/benchmark-vm-build.log`
+- `.local/logs/ansible-benchmark-role-check-01-20260930-230851.log`
+- `.local/results/benchmark-role-check.log`
+- `.local/results/benchmark-vm-cleanup.json`
 
 ## 旧構成の検証記録
 

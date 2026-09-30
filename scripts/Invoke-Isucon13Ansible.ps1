@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string]$VMName,
+    [ValidateSet('application', 'benchmarker')][string]$Role = 'application',
     [string]$IdentityFile
 )
 
@@ -36,5 +37,5 @@ if ($LASTEXITCODE -ne 0) { throw 'provisionスクリプトの転送に失敗し�
 $taskLogDir = Join-Path $taskRoot '.local\logs'
 New-Item -ItemType Directory -Path $taskLogDir -Force | Out-Null
 $taskLog = Join-Path $taskLogDir "ansible-$VMName-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-& ssh @taskOptions $taskTarget 'bash /home/ubuntu/provision-isucon13.sh' 2>&1 | Tee-Object -FilePath $taskLog
+& ssh @taskOptions $taskTarget "bash /home/ubuntu/provision-isucon13.sh $Role" 2>&1 | Tee-Object -FilePath $taskLog
 if ($LASTEXITCODE -ne 0) { throw '公式ISUCON13 Ansibleの実行に失敗しました。' }

@@ -30,9 +30,6 @@ if (-not (Test-Path -LiteralPath $taskKey)) {
     if ($LASTEXITCODE -ne 0) { throw 'SSH鍵の生成に失敗しました。' }
 }
 $taskPublicKey = (Get-Content -LiteralPath "$taskKey.pub" -Raw).Trim()
-if ($taskPublicKey -notmatch '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+) [A-Za-z0-9+/=]+( .*)?$') {
-    throw 'SSH公開鍵の形式が不正です。'
-}
 $taskUserData = (Get-Content -LiteralPath (Join-Path $taskRoot 'config\autoinstall.yaml') -Raw).
     Replace('{{hostname}}', $Name).Replace('{{ssh_public_key}}', ($taskPublicKey | ConvertTo-Json -Compress))
 $taskEncoding = [Text.UTF8Encoding]::new($false)

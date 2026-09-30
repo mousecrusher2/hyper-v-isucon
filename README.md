@@ -1,150 +1,155 @@
 # Hyper-V ISUCON13 検証環境
 
-Packerは使用しない。素のUbuntu Serverをgolden VHDXにし、フルコピーしたcloneへ公式Ansibleを実行する。
+Ubuntu Serverのgolden VHDXからVMを作成し、ISUCON13を構築する。
+使用するドメインは`*.u.isucon.test`・`*.t.isucon.test`、TLS証明書は自己署名証明書。
 
-```text
-golden作成用VM・NoCloud CDを準備 → ISOからUbuntu Serverをautoinstall
-→ cloud-init・SSH・sudoを確認 → generalize・shutdown
-→ golden VHDXをフルコピーして新規VM作成
-→ cloneのcloud-init完了 → .testドメイン・自己署名証明書を準備 → 公式ISUCON13 Ansible
-```
+## ユーザーが行う操作
 
-## スクリプト
+### 事前準備
 
-| スクリプト | 処理 |
-| --- | --- |
-| `Build-GoldenImage.ps1` | 無人インストールからgeneralize・golden VHDX保存までの一括実行 |
-| `New-GoldenVM.ps1` | 独立VHDX、Generation 2 VM、ISO・NoCloud CD接続、autoinstall起動 |
-| `Complete-GoldenImage.ps1` | cloud-initのgeneralize、shutdown、golden VHDX保存、作成用VMの登録解除 |
-| `New-UbuntuVM.ps1` | goldenのフルコピー、新規VM、VMごとのNoCloud CDの作成 |
-| `Invoke-Isucon13Ansible.ps1` | clone内で公式ソース取得、.test・自己署名証明書の設定、成果物生成、公式Ansible実行 |
-| `Test-UbuntuClones.ps1` | cloud-init・SSH・sudo・clone間のIDの独立性を確認 |
-
-PowerShellスクリプトは`scripts/`、ゲストで使うシェルスクリプトは`scripts/guest/`にある。
-
-## ホストの前提
+次を用意する。
 
 - Windows＋Hyper-V、PowerShell 7.3以上、Windows OpenSSH Client。
 - 管理者またはHyper-V Administratorsグループの権限。
-- DHCP、外部への通信、ホストからのSSHが使える仮想スイッチ。既定は`Default Switch`。
-- autoinstall・cloneのNoCloud CD生成用にWindows ADK Deployment Toolsの`oscdimg.exe`。
+- Windows ADKのDeployment Tools。
 - Ubuntu Server 22.04 amd64のインストーラーISO。
+- VMがDHCPでIPを取得でき、インターネットへ接続でき、WindowsホストからVMへSSH接続できる仮想スイッチ。既定は`Default Switch`。
 
-## 1. 素のUbuntu goldenを作る
+以下の構築コマンドは、WindowsのPowerShellでリポジトリのルートディレクトリから実行する。
 
-リポジトリルートで実行する。
+### 1. goldenを作成する
+
+使用するISOを指定して実行する。goldenを作成済みの場合は手順2へ進む。
 
 ```powershell
-.\scripts\Build-GoldenImage.ps1
+.\scripts\Build-GoldenImage.ps1 -IsoPath 'D:\iso\ubuntu-22.04.5-live-server-amd64.iso'
 ```
 
-既定のISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`。
-別の場所のISOは`-IsoPath`で指定できる。
-Generation 2、2 vCPU、固定メモリ4 GiB、Secure Boot無効、独立した64 GiBのdynamic VHDXを作成する。
-既存の同名VM・ディスクは上書きしない。
+ISOが別の場所にある場合は、`-IsoPath`の値を変更する。
+コマンドの完了を待ってから、次の手順へ進む。
 
-NoCloud CDを`oscdimg`で自動生成し、Hyper-Vの仮想キーボードAPIでGRUBへautoinstall起動コマンドを送る。
-インストーラー操作は不要。管理ユーザー`ubuntu`、公開鍵SSH、passwordless sudo、IP通知用の
-`linux-cloud-tools-virtual`をインストール時に設定する。
-インストール完了後にpoweroffし、スクリプトがDVDのISOを解除してディスクから起動する。
-IPv4とSSH接続を待ち、cloud-init・OS・sudo・UEFI・`ssh_deletekeys`を確認してgeneralizeする。
+### 2. goldenを指定してclone VMを作成する
 
-GeneralizeではServerインストーラーの`99-installer.cfg`を除去した後、
-標準の`cloud-init clean --logs --machine-id`と`poweroff`を実行する。
-これによりcloneは自身のNoCloud設定を検出し、machine-idとSSH host keyを再生成する。
-
-完成するgolden原本:
-
-```text
-golden/ubuntu-server-22.04/disk.vhdx
-```
-
-goldenへISUCON13やAnsibleは導入しない。原本は直接起動せず保存する。
-
-## 2. フルコピーしてcloneを作る
+使用するgolden VHDXのパスを`$golden`に、新規作成するVM名を`$vmName`に指定する。
+`-GoldenVhdxPath`と`-Name`は必須。VM名には未使用の名前を選ぶ。
 
 ```powershell
 $golden = (Resolve-Path '.\golden\ubuntu-server-22.04\disk.vhdx').Path
-.\scripts\New-UbuntuVM.ps1 -Name ubuntu-clone01 -GoldenVhdxPath $golden -Start
-.\scripts\New-UbuntuVM.ps1 -Name ubuntu-clone02 -GoldenVhdxPath $golden -Start
-.\scripts\Test-UbuntuClones.ps1
+$vmName = 'isucon13-vm01'
+.\scripts\New-UbuntuVM.ps1 -Name $vmName -GoldenVhdxPath $golden -Start
 ```
 
-ディスクは`Copy-Item`でフルコピーする。differencing VHDXは使わない。
-VM・NIC・MACは新規作成し、NoCloudのinstance-idもVMごとに生成する。
-NoCloud CDはそのVMへ付けたままにする。
-管理ユーザー`ubuntu`は残し、cloneの初回起動時にSSH公開鍵を設定する。
+上のgoldenパスは、手順1で生成されるファイルの保存先。
+別の場所に保存したgoldenを使う場合は、`Resolve-Path`へ渡すパスを変更する。
+`-Start`を付けてVMを起動する。
 
-cloneのファイルは`vm/<VM名>/`、SSH鍵・検証結果は`.local/`に保存する。
+作成されたVMの設定用CD（`seed.iso`）は、接続したまま使う。
 
-## 3. cloneへ公式Ansibleを実行する
+### 3. 対象VMを指定してISUCON13を構築する
+
+手順2で指定したVM名を使って実行する。
 
 ```powershell
-.\scripts\Invoke-Isucon13Ansible.ps1 -VMName ubuntu-clone01
-.\scripts\Invoke-Isucon13Ansible.ps1 -VMName ubuntu-clone02
+.\scripts\Invoke-Isucon13Ansible.ps1 -VMName $vmName
 ```
 
-スクリプトはclone内で次の順に実行する。
+このコマンドが正常終了すれば、構築は完了。
+VMを増やす場合は、VM名を変えて手順2と3を繰り返す。
 
-1. cloud-init完了確認。
-2. Ansible等を導入し、公式が使うxbuildで成果物生成用のGo・Nodeを準備。
-3. GitHubの`isucon/isucon13`を取得。
-4. ソース・nginx設定・DNS zone・Cookie等の`isucon.dev`を`isucon.test`へ置換。
-5. `*.u.isucon.test`・`*.t.isucon.test`の自己署名証明書を生成。DNS zoneファイル名も変更。
-6. 参照実装と同様に、生成するベンチマーカーのTLS証明書検証を省略する設定へ変更。
-7. 公式`provisioning/ansible/make_latest_files.sh`を実行。
-8. 公式inventoryの`application`へ`application.yml`を実行。
+### 任意: cloneの独立性を確認する
 
-公式Ansibleを基本に、clone内のチェックアウトへドメイン・TLSの変更を適用する。
-証明書はRSA 2048 bit、SAN付き、有効期間3650日で、構築スクリプトの実行ごとに生成する。
-再実行すると公式AnsibleのDB初期化も再実行される。
-
-AWS用IP設定サービスはHyper-VでAWSのIP取得を行わないため、公式Ansibleが設定するcloneのIPv4を使用する。
-DHCPでIPが変わった場合の更新方法は未実装。
-
-参考: [公式ISUCON13](https://github.com/isucon/isucon13)、
-[vagrant-isuconのVagrantfile](https://github.com/matsuu/vagrant-isucon/blob/master/isucon13-standalone/Vagrantfile)、
-[wsl-isuconの構築スクリプト](https://github.com/matsuu/wsl-isucon/blob/main/isucon13/scripts/01-provisioning.sh)。
-参照先はGitHub上の現行内容を使用した。参照先の`.local`に相当するドメインには`.test`を採用している。
-
-## 4. HTTPS・ベンチマーク
-
-サイトのURLは`https://pipe.u.isucon.test/`。
-Windowsのブラウザで開く場合は、hostsに`<cloneのIPv4> pipe.u.isucon.test`を追加する。
-自己署名証明書なので、ブラウザで証明書を信頼するか警告を許可する。
-
-hostsを変更せずに応答を確認する例:
+2台以上のVMを作成した場合に、確認したいVM名を指定して実行する。
 
 ```powershell
-curl.exe --noproxy '*' --insecure --resolve pipe.u.isucon.test:443:<cloneのIPv4> https://pipe.u.isucon.test/
+.\scripts\Test-UbuntuClones.ps1 -VMName isucon13-vm01,isucon13-vm02
 ```
 
-ベンチは構築済みcloneへ`ubuntu`でSSH接続して実行する。
-公式の成果物生成で作られたバイナリを使う。
+### 任意: HTTPS応答を確認する
+
+対象VMのIPアドレスを確認する。
+
+```powershell
+(Get-VMNetworkAdapter -VMName $vmName).IPAddresses
+```
+
+以下の`<VMのIPv4>`を、確認したIPv4アドレスに置き換えて実行する。
+自己署名証明書を使うため、この確認コマンドでは証明書検証を省略する。
+
+```powershell
+curl.exe --noproxy '*' --insecure --resolve pipe.u.isucon.test:443:<VMのIPv4> https://pipe.u.isucon.test/
+```
+
+ブラウザで閲覧する場合は、管理者権限でWindowsの`C:\Windows\System32\drivers\etc\hosts`へ次の行を追加する。
+
+```text
+<VMのIPv4> pipe.u.isucon.test
+```
+
+`https://pipe.u.isucon.test/`を開き、証明書を信頼させるか、ブラウザの警告画面からアクセスを続行する。
+
+### 任意: ベンチを実行する
+
+WindowsのPowerShellから対象VMへSSHログインする。`<VMのIPv4>`は実際のIPv4アドレスに置き換える。
+
+```powershell
+ssh -i .local\ssh\id_ed25519 ubuntu@<VMのIPv4>
+```
+
+ログイン後のUbuntuシェルで、次のコマンドを実行する。
+`--nameserver`には対象VMのIPv4アドレスを指定する。
 
 ```bash
 cd /home/ubuntu/isucon13/bench
 ../provisioning/ansible/roles/bench/files/bench_linux_amd64 run \
-  --nameserver <cloneのIPv4> --enable-ssl
+  --nameserver <VMのIPv4> --enable-ssl
 ```
 
 初期化・整合性確認のみ行う場合は`--pretest-only`を追加する。
-通常の負荷ベンチの結果は`/tmp/result.json`に保存される。`--pretest-only`では結果JSONを作成しない。
-同じVM上でアプリとベンチを動かすため、スコアにはベンチ自身の負荷も含まれる。
+通常の負荷ベンチの結果はVM内の`/tmp/result.json`で確認できる。
 
-## 確認状況
+## スクリプトが自動で行う処理
 
-2026-09-30にWindows＋Hyper-Vの実機で確認した。
+この節は処理内容の説明。
 
-- `Build-GoldenImage.ps1`が手動操作なしで完了し、停止・generalize済みの独立VHDXを保存。
-- 2台のcloneでcloud-init・SSH・sudoを確認。VM ID・MAC・machine-id・SSH host key・instance-idはすべて独立。
-- フルコピー後もgolden原本のSHA-256は不変。
-- clone 1台へ公式Ansibleを実行し、`failed=0`で完了。
-- MySQL・PowerDNS・nginx・Go版webappが起動。WindowsホストからHTTP 200、初期化API・DNSも確認。
+| スクリプト | 自動で行う処理 |
+| --- | --- |
+| `Build-GoldenImage.ps1` | Ubuntuの無人インストール、SSH・sudoの確認、複製の準備、VM停止、golden VHDXの保存 |
+| `New-UbuntuVM.ps1` | 指定されたgoldenのフルコピー、新規VMの作成、SSHログインの設定。`-Start`指定時はVMを起動 |
+| `Invoke-Isucon13Ansible.ps1` | 必要なソフトウェアと公式ソースの取得、.test・自己署名証明書の設定、ビルド、公式Ansibleによるサービスの設定・起動 |
+| `Test-UbuntuClones.ps1` | cloud-init・SSH・sudoの確認と、VM間で各種IDが重複していないことの検証 |
 
-- `.test`・自己署名証明書を適用して公式Ansibleを再実行し、`failed=0`で完了。
-- ゲスト内・Windowsホストとも、生成した証明書を`curl --cacert`へ渡す証明書検証付きHTTPSでHTTP 200。
-- `pipe.u.isucon.test`のDNS応答と初期化APIを確認。
-- `--enable-ssl`でpretest・通常の負荷ベンチを完了。`pass: true`、スコア16845。
+### 内部で呼び出されるスクリプト
 
-条件・ログ・残る事項は[検証記録](docs/validation.md)を参照。
+- `Build-GoldenImage.ps1`は、`New-GoldenVM.ps1`でVM作成と無人インストールを行い、起動確認後に`Complete-GoldenImage.ps1`で複製の準備と停止を行う。
+- `Complete-GoldenImage.ps1`は、Ubuntu内で`scripts/guest/generalize-ubuntu.sh`を実行する。停止後、作成用VMの登録を解除してVHDXを残す。
+- `Invoke-Isucon13Ansible.ps1`は、Ubuntu内で`scripts/guest/provision-isucon13.sh`を実行する。
+
+### 生成物と既定の設定
+
+| 生成物 | 保存先 |
+| --- | --- |
+| golden VHDX | `golden/ubuntu-server-22.04/disk.vhdx` |
+| cloneのディスク・VM設定 | `vm/<VM名>/` |
+| SSH鍵・ログ・検証結果 | `.local/` |
+
+- 作成するVMの既定値はGeneration 2、2 vCPU、固定メモリ4 GiB、64 GiBのVHDX、Secure Boot無効。
+- 管理ユーザーは`ubuntu`。公開鍵SSHとパスワード不要のsudoを設定する。
+- cloneごとに異なるVM ID・MACアドレスを割り当て、初回起動時にmachine-idとSSH host keyを生成する。
+- ベンチは自己署名証明書を使えるよう、TLS証明書検証を省略する設定にする。
+- 同名のVMや作成先のディスクが既にある場合は、上書きせずエラーで終了する。
+- `Invoke-Isucon13Ansible.ps1`の再実行時には、証明書の再生成とDBの初期化も行う。
+
+### 動作上の制約
+
+- DNSにはAnsible実行時のVMのIPv4アドレスを設定する。DHCPでIPが変わった際の設定自動更新は未実装。
+- `--pretest-only`ではベンチ結果のJSONを作成しない。
+- 上記のベンチ実行方法では、アプリとベンチが同じVMのCPU・メモリを使うため、ベンチ自身の負荷もスコアに影響する。
+
+## 検証記録・参考
+
+2026-09-30に、無人インストール、golden作成、2台のclone、公式Ansible、HTTPS・DNS、通常の負荷ベンチまで実機で確認した。
+ベンチ結果は`pass: true`、スコア16845。条件とログは[検証記録](docs/validation.md)を参照。
+
+- [公式ISUCON13](https://github.com/isucon/isucon13)
+- [vagrant-isuconのVagrantfile](https://github.com/matsuu/vagrant-isucon/blob/master/isucon13-standalone/Vagrantfile)
+- [wsl-isuconの構築スクリプト](https://github.com/matsuu/wsl-isucon/blob/main/isucon13/scripts/01-provisioning.sh)

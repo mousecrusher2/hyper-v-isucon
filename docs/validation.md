@@ -11,10 +11,10 @@
 | 仮想スイッチ | `Default Switch` |
 | golden作成用VM | Generation 2、2 vCPU、固定4 GiB、64 GiB dynamic VHDX、Secure Boot無効 |
 | ubuntu-clone01 | 8 vCPU、固定8 GiB。公式Ansible実行先 |
-| ubuntu-clone02 | 2 vCPU、固定4 GiB。素Ubuntuのまま保持 |
+| ubuntu-clone02 | 2 vCPU、固定4 GiB。素Ubuntuでcloneの独立性を確認 |
 | ISUCON13 commit | `8f6afdc3603f0c661368de4659a7240862f59623` |
 
-Packer、differencing VHDX、QCOW2変換は使用していない。
+各VMのディスクは、golden VHDXをフルコピーして作成した。
 インストーラーの手動操作も行っていない。
 
 ## golden作成
@@ -32,7 +32,7 @@ Packer、differencing VHDX、QCOW2変換は使用していない。
 | ssh_deletekeys | `true` |
 | generalize | `99-installer.cfg`除去、`cloud-init clean --logs --machine-id`完了 |
 | shutdown・作成用VM登録解除 | 完了 |
-| 成果物 | VHDX・Dynamic、ParentPathなし、Attached=False |
+| 成果物 | VHDX・Dynamic、Attached=False |
 
 成果物は`golden/ubuntu-server-22.04/disk.vhdx`。
 ISUCON13・Ansibleは含まない。最終版から起動したcloneでも未導入を確認した。
@@ -57,7 +57,7 @@ SSH・sudo・UEFI起動も確認した。
 | ubuntu-clone02 | `21c2dae62bc44bc093d15e6d5cd17669` |
 
 VM ID・MAC・SSH host key・instance-idもすべて異なった。
-両VMのVHDXに親ディスクはなく、自動checkpointは無効。
+両VMの自動checkpointは無効。
 goldenの再ビルド後、ubuntu-clone02は最終版goldenから作り直して検証した。
 
 記録: `.local/results/clone-verification.json`
@@ -120,6 +120,11 @@ SubjectとIssuerが一致し、期限は2036-09-27 00:29:01 UTC。
 
 - [vagrant-isucon](https://github.com/matsuu/vagrant-isucon/blob/master/isucon13-standalone/Vagrantfile)
 - [wsl-isucon](https://github.com/matsuu/wsl-isucon/blob/main/isucon13/scripts/01-provisioning.sh)
+
+## 検証後の削除
+
+2026-09-30に、検証用VMの`ubuntu-clone01`・`ubuntu-clone02`を停止し、VM登録と関連ファイルを削除した。
+golden VHDXも削除済み。スクリプトと検証ログは残している。
 
 ## 残る事項
 

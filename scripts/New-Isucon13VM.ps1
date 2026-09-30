@@ -17,7 +17,7 @@ Set-StrictMode -Version Latest
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskMachines = @(
     foreach ($taskVMName in $ApplicationName) {
-        [pscustomobject]@{ Name = $taskVMName; Role = 'application'; Memory = $MemoryStartupBytes; CPUs = $ProcessorCount; MaximumIOPS = 256000 }
+        [pscustomobject]@{ Name = $taskVMName; Role = 'application'; Memory = $MemoryStartupBytes; CPUs = $ProcessorCount; MaximumIOPS = 32000 }
     }
     [pscustomobject]@{ Name = $BenchmarkerName; Role = 'benchmarker'; Memory = $BenchmarkerMemoryStartupBytes; CPUs = $BenchmarkerProcessorCount; MaximumIOPS = 0 }
 )

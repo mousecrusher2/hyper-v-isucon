@@ -91,13 +91,13 @@ Hyper-V側でも次の設定を確認した。
 
 IOPSは[Hyper-Vの8 KiB換算](https://learn.microsoft.com/en-us/windows/win32/hyperv_v2/msvm-storageallocationsettingdata)で制限する。
 16 KiBのI/Oは2回分として数えるため、3000の設定ではgp3より低い上限になる。
-このため、現行設定はアプリ用を`MaximumIOPS=256000`へ変更した。
+コミット`f6669a6`では、アプリ用を`MaximumIOPS=256000`へ変更した。
 gp3標準の125 MiB/sと、[EBSによる小さなI/Oの結合](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-io-characteristics.html)を考慮し、
 最小512 BのI/Oまで許容する保守的な上限として`125 MiB/s ÷ 512 B = 256000`を採用した。
 512 Bの倍数の読み書きでは、8 KiB換算カウントは転送量を512 Bで割った値を超えないため、
 125 MiB/s以下の読み書きをこの上限のために制限することはない。
 
-変更後のアプリ3台へ256000、ベンチ用へ0を渡すことを、子スクリプトを代替した検証で再確認した。
+この時のアプリ3台へ256000、ベンチ用へ0を渡すことを、子スクリプトを代替した検証で再確認した。
 上限の計算とPowerShellの構文も確認した。
 256000の実機設定確認とI/O負荷をかけた速度測定は行っていない。実性能はホストのストレージや同時負荷に依存する。
 
@@ -108,6 +108,38 @@ gp3標準の125 MiB/sと、[EBSによる小さなI/Oの結合](https://docs.aws.
 - `.local/results/storage-qos-cleanup.json`
 - `.local/results/four-vm-gp3-limit-check.log`
 - `.local/results/gp3-limit-calculation-check.log`
+
+### 4KnとIOPS上限（2026-10-01）
+
+現行構成では全VMのVHDXを4Kn（論理・物理セクター各4096 B）に変更し、
+アプリ用の上限を`MaximumIOPS=32000`、ベンチ用を0とした。
+VHDXの作成時に`LogicalSectorSizeBytes`と`PhysicalSectorSizeBytes`を両方4096に指定する。
+
+4 KiBの倍数のデータI/Oについて、サイズが`4 KiB × n`なら、Hyper-Vの換算数は`ceil(n / 2) ≤ n`となる。
+したがって、要求ごとの切り上げとサイズの混在を含めても、総換算数は総転送量を4 KiBで割った値を超えない。
+EBS側での結合も考慮した保守的な上限として、`125 MiB/s ÷ 4 KiB = 32000`を使用する。
+上限の計算、PowerShellの構文、アプリ3台へ32000・ベンチ用へ0を渡すことを確認した。
+
+変更後の`New-UbuntuVM.ps1`で、`fourkn-install-check-01`をISOから作成し、次を実機で確認した。
+
+- Ubuntu Server 22.04.5の無人インストール、ISO解除、ディスクからの起動、SSH、passwordless sudo、cloud-init正常完了。
+- Hyper-V側: 40 GiB、論理・物理セクター4096 B、`MaximumIOPS=32000`、`MinimumIOPS=0`。
+- ゲスト側: `/dev/sda`の論理・物理セクター4096 B、ルートファイルシステムはext4。
+- 4 KiB・16 KiB単位のDirect I/Oによるファイル読み書き。
+- MySQL `8.0.46-0ubuntu0.22.04.4`を`innodb_flush_method=O_DIRECT`で起動。ページサイズは16384 B。
+- InnoDBへ1000行・計1024000 Bのペイロードを書き込み、`CHECK TABLE`がOK。MySQLサービス停止・再起動後も行数とデータ量が一致。
+
+今回の実機確認はUbuntuとMySQLに限定し、公式Ansible全体と負荷ベンチは再実行していない。
+検証用VMとVHDXを含む専用ディレクトリは削除済み。検証前から存在したVMは変更していない。
+
+記録:
+
+- `.local/results/four-vm-4kn-limit-check.log`
+- `.local/results/4kn-limit-calculation-check.log`
+- `.local/results/fourkn-vm-build.log`
+- `.local/results/fourkn-host-check.json`
+- `.local/results/fourkn-guest-check.log`
+- `.local/results/fourkn-vm-cleanup.json`
 
 ## 旧構成の検証記録
 

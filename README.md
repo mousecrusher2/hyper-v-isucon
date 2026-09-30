@@ -126,8 +126,8 @@ cd /home/ubuntu/isucon13/bench
 | SSH鍵・ログ・検証結果 | `.local/` |
 
 - アプリ用VMの既定値は各2 vCPU・固定メモリ4 GiB、ベンチ用VMは8 vCPU・固定メモリ8 GiB。
-- 全VMでGeneration 2、40 GiBのVHDX、Secure Boot無効を使用する。
-- アプリ用VMのディスクは最大256000 IOPS（Hyper-Vの8 KiB換算）。ベンチ用VMはIOPS制限なし。
+- 全VMでGeneration 2、40 GiBの4Kn VHDX（論理・物理セクター各4 KiB）、Secure Boot無効を使用する。
+- アプリ用VMのディスクは最大32000 IOPS（Hyper-Vの8 KiB換算）。ベンチ用VMはIOPS制限なし。
 - ボリュームシャドウコピー（VSS）とHyper-Vコンソールは無効。自動開始アクションはなし、自動停止アクションはシャットダウン。
 - 管理ユーザーは`ubuntu`。公開鍵SSHとパスワード不要のsudoを設定する。
 - ベンチは自己署名証明書を使えるよう、TLS証明書検証を省略する設定にする。
@@ -137,7 +137,7 @@ cd /home/ubuntu/isucon13/bench
 
 ### 動作上の制約
 
-- IOPS上限は、[gp3標準の3000 IOPS・125 MiB/s](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html)をこの制限によって下回らせないための保守的な値。[EBSが小さなI/Oを結合する場合](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-io-characteristics.html)も考慮し、`125 MiB/s ÷ 512 B = 256000`を採用している。
+- IOPS上限は、[gp3標準の3000 IOPS・125 MiB/s](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html)をこの制限によって下回らせないための保守的な値。[EBSが小さなI/Oを結合する場合](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-io-characteristics.html)も考慮し、4Knの最小I/Oを基準に`125 MiB/s ÷ 4 KiB = 32000`を採用している。データの読み書きでは、要求ごとの8 KiB換算の切り上げを含めても、換算数は転送量を4 KiBで割った値を超えない。
 - 実性能はホストのストレージや同時負荷に依存する。gp3と同じ性能を再現する設定ではない。
 - DNSにはAnsible実行時のVMのIPv4アドレスを設定する。DHCPでIPが変わった際の設定自動更新は未実装。
 - `--pretest-only`ではベンチ結果のJSONを作成しない。

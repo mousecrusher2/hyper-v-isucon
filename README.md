@@ -31,6 +31,25 @@ ISOが別の場所にある場合は、`-IsoPath`の値を変更する。
 構築後のCPU数を変更する場合は、`-ProcessorCount <アプリ用CPU数> -BenchmarkerProcessorCount <ベンチ用CPU数>`を追加する。
 VM名には未使用の名前を選ぶ。このコマンドが正常終了すれば、4台の構築は完了。
 
+### VMへSSH接続する
+
+WindowsのPowerShellで、リポジトリのルートから、接続したいVM名を`$vmName`に指定して実行する。
+アプリ用・ベンチ用とも、SSH鍵`.local/ssh/id_ed25519`を使い、`ubuntu`ユーザーとしてログインする。
+
+```powershell
+$vmName = 'isucon13-app01'
+$vmIP = (Get-VMNetworkAdapter -VMName $vmName).IPAddresses |
+    Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
+    Select-Object -First 1
+ssh -i .local\ssh\id_ed25519 `
+    -o "HostKeyAlias=$vmName" `
+    -o "UserKnownHostsFile=.local/ssh/known_hosts_$vmName" `
+    "ubuntu@$vmIP"
+```
+
+他のVMへ接続する場合は、`$vmName`を`isucon13-app02`・`isucon13-app03`・`isucon13-bench`などのVM名に変更する。
+アプリ用VMで`isucon`ユーザーとして作業する場合は、ログイン後に`sudo -iu isucon`を実行する。
+
 ### Ansibleで失敗した場合の再実行
 
 Ubuntuのインストールが完了し、Ansibleで失敗した場合は、失敗したVM名を`$vmName`に指定し、VMを起動した状態で次を実行する。
@@ -91,11 +110,7 @@ WindowsのPowerShellで、対象アプリとベンチ用VMのIPv4アドレスを
 (Get-VMNetworkAdapter -VMName 'isucon13-bench').IPAddresses
 ```
 
-ベンチ用VMへSSHログインする。`<ベンチVMのIPv4>`は確認したIPv4アドレスに置き換える。
-
-```powershell
-ssh -i .local\ssh\id_ed25519 ubuntu@<ベンチVMのIPv4>
-```
+「[VMへSSH接続する](#vmへssh接続する)」の手順で、`$vmName = 'isucon13-bench'`を指定してログインする。
 
 ログイン後のUbuntuシェルで、次のコマンドを実行する。
 `--nameserver`には対象アプリVMのIPv4アドレスを指定する。

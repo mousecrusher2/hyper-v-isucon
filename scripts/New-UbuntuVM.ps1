@@ -3,6 +3,7 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string]$Name,
     [Parameter(Mandatory)][string]$IsoPath,
+    [Parameter(Mandatory)][string]$OutputPath,
     [string]$SwitchName = 'Default Switch',
     [long]$MemoryStartupBytes = 4GB,
     [int]$ProcessorCount = 4,
@@ -14,10 +15,12 @@ Set-StrictMode -Version Latest
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $false
 $taskRoot = Split-Path -Parent $PSScriptRoot
+$taskOutputRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $taskIso = (Resolve-Path -LiteralPath $IsoPath).Path
-$taskVmDir = Join-Path $taskRoot "vm\$Name"
+$taskVmDir = Join-Path $taskOutputRoot "vm\$Name"
 $taskDisk = Join-Path $taskVmDir 'disk.vhdx'
-$taskKey = Join-Path $taskRoot '.local\ssh\id_ed25519'
+$taskKey = Join-Path $taskOutputRoot 'ssh\id_ed25519'
+$taskKnownHosts = Join-Path $taskOutputRoot "ssh\known_hosts_$Name"
 Get-VMSwitch -Name $SwitchName -ErrorAction Stop | Out-Null
 if (Get-VM -Name $Name -ErrorAction SilentlyContinue) { throw "VM $Name は既に存在します。" }
 if (Test-Path -LiteralPath $taskVmDir) { throw "$taskVmDir は既に存在します。" }
@@ -88,7 +91,7 @@ Start-VM -Name $Name
 $taskVM = Get-VM -Name $Name
 $taskOptions = @('-i', $taskKey, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
     '-o', 'StrictHostKeyChecking=accept-new', '-o', "HostKeyAlias=$Name",
-    '-o', "UserKnownHostsFile=$(Join-Path $taskRoot ".local\ssh\known_hosts_$Name")")
+    '-o', "UserKnownHostsFile=`"$taskKnownHosts`"")
 $taskDeadline = (Get-Date).AddMinutes(10)
 Write-Host 'UbuntuのIPv4とSSH接続を待っています。'
 do {

@@ -9,6 +9,24 @@
 各VMのAnsible成功後に、アプリ用は2 vCPU・最大32000 IOPS、ベンチ用は8 vCPU・IOPS制限なしに設定する。
 CPU設定後の再起動でIPが変わった場合は、環境変数を更新して公式のDNS初期化スクリプトを実行する。
 
+### 保存先の指定（2026-10-01）
+
+3つのスクリプトに必須の`-OutputPath`を追加し、指定先の`vm/`・`ssh/`・`logs/`へ出力する構成に変更した。
+Hyper-V操作とゲスト実行を代替し、実際のスクリプトで次を確認した。
+
+- 相対パス・末尾の区切り文字・空白を含む保存先で、VMのディスク・設定のパスが指定先になる。
+- NoCloudの設定とseed ISO、SSH鍵、Ansibleログが指定先に生成される。seed ISOはWindowsのIMAPIで実際に生成した。
+- Windows OpenSSHが空白を含む鍵・接続先記録のパスを設定として受け付ける。
+- Ansibleの再実行で同じ鍵を使用し、異なる保存先を指定した場合はSSH実行前にエラーになる。
+- 4つの並列ジョブで、両段階へ同じ絶対パスの保存先を引き継ぐ。
+
+この変更では実際のVM作成・OSインストール・公式Ansibleの再実行は行っていない。
+VMとVHDXは作成していない。
+
+記録: `.local/results/output-path-check.log`
+
+### Ubuntuの直接インストール
+
 `New-UbuntuVM.ps1`を使い、`direct-install-check-01`へUbuntuを直接インストールした。
 ISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`、VMはGeneration 2・2 vCPU・固定4 GiB。
 インストール、ISO解除、ディスクからの起動まで無人で完了した。

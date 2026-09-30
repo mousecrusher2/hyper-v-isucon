@@ -17,13 +17,15 @@ Ubuntu Server ISOからアプリ用3台・ベンチ用1台のVMを作成し、IS
 
 ### VMを構築する
 
-使用するISOを指定して実行する。
+使用するISOと保存先フォルダーを指定して実行する。
 
 ```powershell
-.\scripts\New-Isucon13VM.ps1 -IsoPath 'D:\iso\ubuntu-22.04.5-live-server-amd64.iso'
+$outputPath = 'D:\isucon13'
+.\scripts\New-Isucon13VM.ps1 -IsoPath 'D:\iso\ubuntu-22.04.5-live-server-amd64.iso' -OutputPath $outputPath
 ```
 
 ISOが別の場所にある場合は、`-IsoPath`の値を変更する。
+保存先を変更する場合は、`$outputPath`の値を変更する。`-OutputPath`は必須で、フォルダーは事前に作成しなくてよい。
 仮想スイッチを変更する場合は、`-SwitchName 'スイッチ名'`を追加する。省略時は`Default Switch`を使用する。
 
 既定のVM名は、アプリ用が`isucon13-app01`・`isucon13-app02`・`isucon13-app03`、ベンチ用が`isucon13-bench`。
@@ -33,17 +35,19 @@ VM名には未使用の名前を選ぶ。このコマンドが正常終了すれ
 
 ### VMへSSH接続する
 
-WindowsのPowerShellで、リポジトリのルートから、接続したいVM名を`$vmName`に指定して実行する。
-アプリ用・ベンチ用とも、SSH鍵`.local/ssh/id_ed25519`を使い、`ubuntu`ユーザーとしてログインする。
+WindowsのPowerShellで、構築時の保存先を`$outputPath`、接続したいVM名を`$vmName`に指定して実行する。
+アプリ用・ベンチ用とも、保存先の`ssh/id_ed25519`を使い、`ubuntu`ユーザーとしてログインする。
 
 ```powershell
+$outputPath = 'D:\isucon13'
 $vmName = 'isucon13-app01'
 $vmIP = (Get-VMNetworkAdapter -VMName $vmName).IPAddresses |
     Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
     Select-Object -First 1
-ssh -i .local\ssh\id_ed25519 `
+$knownHosts = Join-Path $outputPath "ssh\known_hosts_$vmName"
+ssh -i (Join-Path $outputPath 'ssh\id_ed25519') `
     -o "HostKeyAlias=$vmName" `
-    -o "UserKnownHostsFile=.local/ssh/known_hosts_$vmName" `
+    -o "UserKnownHostsFile=`"$knownHosts`"" `
     "ubuntu@$vmIP"
 ```
 
@@ -52,18 +56,19 @@ ssh -i .local\ssh\id_ed25519 `
 
 ### Ansibleで失敗した場合の再実行
 
-Ubuntuのインストールが完了し、Ansibleで失敗した場合は、失敗したVM名を`$vmName`に指定し、VMを起動した状態で次を実行する。
+Ubuntuのインストールが完了し、Ansibleで失敗した場合は、構築時の保存先を`$outputPath`、失敗したVM名を`$vmName`に指定し、VMを起動した状態で次を実行する。
 アプリ用VMでは、再実行するとDBは初期化される。
 
 ```powershell
+$outputPath = 'D:\isucon13'
 $vmName = 'isucon13-app02'
-.\scripts\Invoke-Isucon13Ansible.ps1 -VMName $vmName
+.\scripts\Invoke-Isucon13Ansible.ps1 -VMName $vmName -OutputPath $outputPath
 ```
 
 ベンチ用VMの場合は、次を実行する。
 
 ```powershell
-.\scripts\Invoke-Isucon13Ansible.ps1 -VMName 'isucon13-bench' -Role benchmarker
+.\scripts\Invoke-Isucon13Ansible.ps1 -VMName 'isucon13-bench' -OutputPath $outputPath -Role benchmarker
 ```
 
 CPU数を変更していた場合は、再実行にも`-ProcessorCount <構築後のCPU数>`を指定する。
@@ -71,7 +76,7 @@ CPU数を変更していた場合は、再実行にも`-ProcessorCount <構築�
 未作成のVMが残った場合は、VM名とISOのパスを指定してUbuntuをインストールする。
 
 ```powershell
-.\scripts\New-UbuntuVM.ps1 -Name '<VM名>' -IsoPath '<ISOのパス>'
+.\scripts\New-UbuntuVM.ps1 -Name '<VM名>' -IsoPath '<ISOのパス>' -OutputPath $outputPath
 ```
 
 ベンチ用VMの作成には`-MemoryStartupBytes 8GB`を追加する。
@@ -154,10 +159,13 @@ Ansibleの再実行時も、構築中は4 vCPU・IOPS制限なしにし、成功
 
 ### 生成物と共通の設定
 
+スクリプトは`-OutputPath`で指定したフォルダー内に、次の生成物を保存する。
+
 | 生成物 | 保存先 |
 | --- | --- |
 | VMのディスク・設定 | `vm/<VM名>/` |
-| SSH鍵・ログ・検証結果 | `.local/` |
+| SSH鍵・接続先の記録 | `ssh/` |
+| Ansibleの実行ログ | `logs/` |
 
 - 全VMでGeneration 2、Secure Boot無効を使用する。
 - ボリュームシャドウコピー（VSS）とHyper-Vコンソールは無効。自動開始アクションはなし、自動停止アクションはシャットダウン。

@@ -58,6 +58,26 @@ localhost : ok=23 changed=19 unreachable=0 failed=0 skipped=0 rescued=0 ignored=
 - `.local/results/benchmark-role-check.log`
 - `.local/results/benchmark-vm-cleanup.json`
 
+### Hyper-Vの停止・コンソール設定
+
+変更後の`New-UbuntuVM.ps1`で、`vm-settings-check-01`へUbuntuをISOから無人インストールした。
+VMはGeneration 2・2 vCPU・固定4 GiB。インストール後にHyper-Vコンソールを無効化し、
+ディスクからの起動、SSH、passwordless sudo、cloud-init正常完了を確認した。
+
+Hyper-V側でも次の設定を確認した。
+
+- VSS連携: `Enabled=False`。
+- 自動停止アクション: `ShutDown`。
+- 仮想ディスプレイ・キーボード・マウス: なし。
+
+ホストからの正常シャットダウンに成功した。検証用VMとディスクは削除済み。
+
+記録:
+
+- `.local/results/vm-settings-build.log`
+- `.local/results/vm-settings-check.json`
+- `.local/results/vm-settings-cleanup.json`
+
 ## 旧構成の検証記録
 
 以下はコミット`817cafd`までの旧構成の検証記録。

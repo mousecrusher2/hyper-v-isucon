@@ -39,7 +39,8 @@ $taskEncoding = [Text.UTF8Encoding]::new($false)
 
 New-VHD -Path $taskDisk -Dynamic -SizeBytes 64GB -BlockSizeBytes 1MB | Out-Null
 $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes $MemoryStartupBytes -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
-Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled
+Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
+Disable-VMIntegrationService -VM $taskVM -Name VSS
 Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $false
 $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
@@ -82,6 +83,7 @@ foreach ($taskDVD in Get-VMDvdDrive -VMName $Name) {
     Set-VMDvdDrive -VMName $Name -ControllerNumber $taskDVD.ControllerNumber -ControllerLocation $taskDVD.ControllerLocation -Path $null
 }
 Set-VMFirmware -VMName $Name -FirstBootDevice (Get-VMHardDiskDrive -VMName $Name)
+Disable-VMConsoleSupport -VMName $Name
 Start-VM -Name $Name
 $taskVM = Get-VM -Name $Name
 $taskOptions = @('-i', $taskKey, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',

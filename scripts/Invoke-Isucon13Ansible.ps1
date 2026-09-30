@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string]$VMName,
     [ValidateSet('application', 'benchmarker')][string]$Role = 'application',
-    [string]$IdentityFile
+    [string]$IdentityFile,
+    [ValidateRange(1,1024)][int]$ProcessorCount = $(if ($Role -eq 'benchmarker') { 8 } else { 2 })
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,17 +21,30 @@ if ($taskDisk.Count -ne 1 -or -not [IO.Path]::GetFullPath($taskDisk[0].Path).Sta
 }
 $taskInfo = Get-VHD -Path $taskDisk[0].Path
 if ($taskInfo.VhdFormat -ne 'VHDX' -or $taskInfo.ParentPath) { throw 'VMのディスクが独立したVHDXではありません。' }
-$taskDeadline = (Get-Date).AddMinutes(5)
-do {
-    $taskIP = (Get-VMNetworkAdapter -VM $taskVM).IPAddresses |
-        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -notmatch '^169\.254\.' } | Select-Object -First 1
-    if ($taskIP) { break }
-    if ((Get-Date) -ge $taskDeadline) { throw 'VMのIPv4取得がタイムアウトしました。' }
-    Start-Sleep -Seconds 3
-} while ($true)
-
 $taskOptions = @('-i', $IdentityFile, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
-    '-o', 'StrictHostKeyChecking=accept-new', '-o', "UserKnownHostsFile=$(Join-Path $taskRoot ".local\ssh\known_hosts_$VMName")")
+    '-o', 'StrictHostKeyChecking=accept-new', '-o', "HostKeyAlias=$VMName",
+    '-o', "UserKnownHostsFile=$(Join-Path $taskRoot ".local\ssh\known_hosts_$VMName")")
+function Wait-GuestSSH {
+    $taskDeadline = (Get-Date).AddMinutes(5)
+    do {
+        $taskIP = (Get-VMNetworkAdapter -VM $taskVM).IPAddresses |
+            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -notmatch '^169\.254\.' } | Select-Object -First 1
+        if ($taskIP) {
+            & ssh @taskOptions "ubuntu@$taskIP" 'true' 2>$null
+            if ($LASTEXITCODE -eq 0) { return $taskIP }
+        }
+        if ((Get-Date) -ge $taskDeadline) { throw 'VMのSSH接続待ちがタイムアウトしました。' }
+        Start-Sleep -Seconds 3
+    } while ($true)
+}
+
+$taskDisk | Set-VMHardDiskDrive -MaximumIOPS 0
+if ($taskVM.ProcessorCount -ne 4) {
+    Stop-VM -VM $taskVM
+    Set-VM -VM $taskVM -ProcessorCount 4
+    Start-VM -VM $taskVM
+}
+$taskIP = Wait-GuestSSH
 $taskTarget = "ubuntu@$taskIP"
 & scp @taskOptions (Join-Path $PSScriptRoot 'guest\provision-isucon13.sh') "${taskTarget}:/home/ubuntu/provision-isucon13.sh"
 if ($LASTEXITCODE -ne 0) { throw 'provisionスクリプトの転送に失敗しました。' }
@@ -39,3 +53,23 @@ New-Item -ItemType Directory -Path $taskLogDir -Force | Out-Null
 $taskLog = Join-Path $taskLogDir "ansible-$VMName-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 & ssh @taskOptions $taskTarget "bash /home/ubuntu/provision-isucon13.sh $Role" 2>&1 | Tee-Object -FilePath $taskLog
 if ($LASTEXITCODE -ne 0) { throw '公式ISUCON13 Ansibleの実行に失敗しました。' }
+
+Stop-VM -VM $taskVM
+Set-VM -VM $taskVM -ProcessorCount $ProcessorCount
+$taskMaximumIOPS = if ($Role -eq 'application') { 32000 } else { 0 }
+Get-VMHardDiskDrive -VM $taskVM | Set-VMHardDiskDrive -MaximumIOPS $taskMaximumIOPS
+Start-VM -VM $taskVM
+$taskFinalIP = Wait-GuestSSH
+if ($Role -eq 'application' -and $taskFinalIP -ne $taskIP) {
+    $taskUpdateIP = @'
+set -eu
+sudo -n systemctl start mysql pdns
+sudo -n sed -i 's/^ISUCON13_POWERDNS_SUBDOMAIN_ADDRESS=.*/ISUCON13_POWERDNS_SUBDOMAIN_ADDRESS="@IP@"/' /home/isucon/env.sh
+sudo -n bash /home/isucon/webapp/pdns/init_zone.sh
+sudo -n systemctl restart pdns isupipe-go
+'@
+    & ssh @taskOptions "ubuntu@$taskFinalIP" ($taskUpdateIP.Replace('@IP@', $taskFinalIP).Replace("`r`n", "`n")) 2>&1 |
+        Tee-Object -FilePath $taskLog -Append
+    if ($LASTEXITCODE -ne 0) { throw '再起動後のIPアドレスの設定に失敗しました。' }
+}
+Write-Host "構築後の設定を適用しました: $VMName ($ProcessorCount vCPU, MaximumIOPS=$taskMaximumIOPS, IPv4=$taskFinalIP)"

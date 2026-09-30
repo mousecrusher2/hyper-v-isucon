@@ -28,6 +28,7 @@ ISOが別の場所にある場合は、`-IsoPath`の値を変更する。
 
 既定のVM名は、アプリ用が`isucon13-app01`・`isucon13-app02`・`isucon13-app03`、ベンチ用が`isucon13-bench`。
 名前を変更する場合は、`-ApplicationName 'app01','app02','app03' -BenchmarkerName 'bench'`を追加する。
+構築後のCPU数を変更する場合は、`-ProcessorCount <アプリ用CPU数> -BenchmarkerProcessorCount <ベンチ用CPU数>`を追加する。
 VM名には未使用の名前を選ぶ。このコマンドが正常終了すれば、4台の構築は完了。
 
 ### Ansibleで失敗した場合の再実行
@@ -46,13 +47,15 @@ $vmName = 'isucon13-app02'
 .\scripts\Invoke-Isucon13Ansible.ps1 -VMName 'isucon13-bench' -Role benchmarker
 ```
 
+CPU数を変更していた場合は、再実行にも`-ProcessorCount <構築後のCPU数>`を指定する。
+
 未作成のVMが残った場合は、VM名とISOのパスを指定してUbuntuをインストールする。
 
 ```powershell
 .\scripts\New-UbuntuVM.ps1 -Name '<VM名>' -IsoPath '<ISOのパス>'
 ```
 
-ベンチ用VMの作成には`-MemoryStartupBytes 8GB -ProcessorCount 8 -MaximumIOPS 0`を追加する。
+ベンチ用VMの作成には`-MemoryStartupBytes 8GB`を追加する。
 Ubuntuのインストール後、上記の役割に応じたAnsibleコマンドを実行する。
 
 ### 任意: HTTPS応答を確認する
@@ -110,36 +113,50 @@ cd /home/ubuntu/isucon13/bench
 
 | スクリプト | 自動で行う処理 |
 | --- | --- |
-| `New-Isucon13VM.ps1` | アプリ用3台・ベンチ用1台について、VM作成からUbuntuのインストール、各役割のISUCON13構築までを順に実行 |
+| `New-Isucon13VM.ps1` | アプリ用3台・ベンチ用1台を並列で構築 |
 | `New-UbuntuVM.ps1` | 新規VMの作成、Ubuntuの無人インストール、SSH・sudo・cloud-initの確認 |
-| `Invoke-Isucon13Ansible.ps1` | 必要なソフトウェアと公式ソースの取得、.testへの変更、各役割に必要なビルドと公式Ansibleの実行。アプリ用VMでは証明書を生成し、サービスを設定・起動 |
+| `Invoke-Isucon13Ansible.ps1` | 必要なソフトウェアと公式ソースの取得、.testへの変更、各役割に必要なビルドと公式Ansibleの実行。アプリ用VMでは証明書を生成し、サービスを設定・起動。成功後にCPU・IOPSを設定して再起動 |
 
-`New-Isucon13VM.ps1`は、`New-UbuntuVM.ps1`の完了後に`Invoke-Isucon13Ansible.ps1`を呼び出す。
+`New-Isucon13VM.ps1`は、各VMで`New-UbuntuVM.ps1`の完了後に`Invoke-Isucon13Ansible.ps1`を呼び出す。
 `Invoke-Isucon13Ansible.ps1`は、Ubuntu内で`scripts/guest/provision-isucon13.sh`を実行する。
 公式Ansibleは、アプリ用VMには`application.yml`、ベンチ用VMには`benchmark.yml`を使用する。
 
-### 生成物と既定の設定
+### VMの構成（既定値）
+
+| 項目 | アプリ用VM | ベンチ用VM |
+| --- | --- | --- |
+| 台数 | 3台 | 1台 |
+| CPU | 各2 vCPU | 8 vCPU |
+| メモリ | 各4 GiB（固定） | 8 GiB（固定） |
+| ディスク容量 | 各40 GiB | 40 GiB |
+| ディスク形式 | 4Kn VHDX（論理・物理セクター各4 KiB） | 4Kn VHDX（論理・物理セクター各4 KiB） |
+| 最大IOPS | 各32000（Hyper-Vの8 KiB換算） | 制限なし |
+
+構築中は全VMを4 vCPU・IOPS制限なしで稼働させる。
+各VMのAnsibleが成功した後、シャットダウンして表のCPU・IOPS設定を適用し、再起動する。
+この再起動でIPが変わった場合は、アプリ用VMの環境変数とDNS設定を更新する。
+Ansibleの再実行時も、構築中は4 vCPU・IOPS制限なしにし、成功後に構築後の設定へ戻す。
+
+### 生成物と共通の設定
 
 | 生成物 | 保存先 |
 | --- | --- |
 | VMのディスク・設定 | `vm/<VM名>/` |
 | SSH鍵・ログ・検証結果 | `.local/` |
 
-- アプリ用VMの既定値は各2 vCPU・固定メモリ4 GiB、ベンチ用VMは8 vCPU・固定メモリ8 GiB。
-- 全VMでGeneration 2、40 GiBの4Kn VHDX（論理・物理セクター各4 KiB）、Secure Boot無効を使用する。
-- アプリ用VMのディスクは最大32000 IOPS（Hyper-Vの8 KiB換算）。ベンチ用VMはIOPS制限なし。
+- 全VMでGeneration 2、Secure Boot無効を使用する。
 - ボリュームシャドウコピー（VSS）とHyper-Vコンソールは無効。自動開始アクションはなし、自動停止アクションはシャットダウン。
 - 管理ユーザーは`ubuntu`。公開鍵SSHとパスワード不要のsudoを設定する。
 - ベンチは自己署名証明書を使えるよう、TLS証明書検証を省略する設定にする。
 - 同名のVMや作成先のディスクが既にある場合は、上書きせずエラーで終了する。
-- 構築中にエラーが発生すると処理を中断する。
+- 構築中にエラーが発生したVMは処理を中断し、VMとディスクを残す。他のVMの構築は続行する。
 - アプリ用VMで`Invoke-Isucon13Ansible.ps1`を再実行すると、証明書の再生成とDBの初期化も行う。
 
 ### 動作上の制約
 
 - IOPS上限は、[gp3標準の3000 IOPS・125 MiB/s](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html)をこの制限によって下回らせないための保守的な値。[EBSが小さなI/Oを結合する場合](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-io-characteristics.html)も考慮し、4Knの最小I/Oを基準に`125 MiB/s ÷ 4 KiB = 32000`を採用している。データの読み書きでは、要求ごとの8 KiB換算の切り上げを含めても、換算数は転送量を4 KiBで割った値を超えない。
 - 実性能はホストのストレージや同時負荷に依存する。gp3と同じ性能を再現する設定ではない。
-- DNSにはAnsible実行時のVMのIPv4アドレスを設定する。DHCPでIPが変わった際の設定自動更新は未実装。
+- DNSには構築完了時のVMのIPv4アドレスを設定する。その後、DHCPでIPが変わった際の設定自動更新は未実装。
 - `--pretest-only`ではベンチ結果のJSONを作成しない。
 
 ## 検証記録・参考

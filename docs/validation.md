@@ -4,8 +4,10 @@
 
 ## 現行構成
 
-`New-Isucon13VM.ps1`で、アプリ用3台・ベンチ用1台をISOから無人インストールし、
-各VMに役割に応じた公式Ansibleを実行する。
+`New-Isucon13VM.ps1`で、アプリ用3台・ベンチ用1台をISOから並列に無人インストールし、
+各VMに役割に応じた公式Ansibleを実行する。構築中は全VMで4 vCPU・IOPS制限なし。
+各VMのAnsible成功後に、アプリ用は2 vCPU・最大32000 IOPS、ベンチ用は8 vCPU・IOPS制限なしに設定する。
+CPU設定後の再起動でIPが変わった場合は、環境変数を更新して公式のDNS初期化スクリプトを実行する。
 
 `New-UbuntuVM.ps1`を使い、`direct-install-check-01`へUbuntuを直接インストールした。
 ISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`、VMはGeneration 2・2 vCPU・固定4 GiB。
@@ -25,7 +27,63 @@ ISOは`D:\iso\ubuntu-22.04.5-live-server-amd64.iso`、VMはGeneration 2・2 vCPU
 - `.local/results/direct-install-check.log`
 - `.local/results/direct-install-cleanup.json`
 
-### 4台構成とベンチ用VM
+### 並列構築とCPU・IOPSの後設定（2026-10-01）
+
+変更したPowerShellスクリプトで、下記4台を同じISOから並列に無人インストールした。
+この検証ではAnsibleのゲスト処理を、CPU数・sudo・cloud-init・4Knを確認する処理に置き換えた。
+VM作成・インストール・SSH接続・正常シャットダウン・資源設定・再起動は実際の処理を使用した。
+
+| VM | 構築中のvCPU / 最大IOPS | 完了後のvCPU / 最大IOPS | 固定メモリ |
+| --- | --- | --- | --- |
+| `parallel-check-app01` | 4 / 0（制限なし） | 2 / 32000 | 4 GiB |
+| `parallel-check-app02` | 4 / 0（制限なし） | 2 / 32000 | 4 GiB |
+| `parallel-check-app03` | 4 / 0（制限なし） | 2 / 32000 | 4 GiB |
+| `parallel-check-bench` | 4 / 0（制限なし） | 8 / 0（制限なし） | 8 GiB |
+
+4台が同時にRunningになり、構築中のCPU・IOPSが表の値であることをホストから確認した。
+各ゲストも構築処理中の4 vCPUを確認し、再起動後は2 / 8 vCPUになった。
+全VMで40 GiB・論理 / 物理セクター4096 B、SSH・sudo・cloud-init正常完了を確認した。
+
+`parallel-check-app01`では再実行も行い、2 vCPU・32000 IOPSから4 vCPU・制限なしへ変更し、
+成功後に2 vCPU・32000 IOPSへ戻ることを実機確認した。
+
+子スクリプトを代替した検証では、4台のインストールとAnsible呼び出しがそれぞれ重なること、
+VMごとの処理順序、指定した名前・CPU・メモリ・ISO・スイッチ・タイムアウトの引き継ぎを確認した。
+1台に失敗を起こした場合も残り3台は完了し、全体の処理は失敗したVM名を報告して終了した。
+資源設定の代替検証では、Ansible失敗時には最終設定を適用しないことと、再起動後のIP変更時の更新処理も確認した。
+
+`parallel-check-app01`では4 vCPU・4 GiB・IOPS制限なしで、実際の公式`application.yml`も実行した。
+
+```text
+localhost : ok=124 changed=93 unreachable=0 failed=0 skipped=0 rescued=0 ignored=0
+```
+
+再起動後にDHCPのIPが変わり、SSH接続可能になった時点ではMySQLがまだ起動中だったため、
+初回のDNS更新は接続エラーになった。MySQL・PowerDNSの起動完了を待つ処理を追加した。
+導入済みのVMでゲストの構築処理を検証用に置き換え、修正後の資源切り替え・IP更新を再実行した。
+最終的に2 vCPU・32000 IOPS、cloud-init正常完了、mysql・pdns・nginx・isupipe-goのactive、
+`pipe.u.isucon.test`のDNS応答と環境変数が最終IPの`172.31.66.246`に一致すること、ホストからのHTTPS 200を確認した。
+IP変更後も同じVMのSSHホスト鍵を確認できる設定を実機確認した。
+
+4台すべての公式Ansibleを同時に最後まで実行する検証と、構築時間の比較は行っていない。
+検証用VM4台とVHDX・関連ファイルは削除済み。既存の`uefi-test`は停止状態のまま保持した。
+
+記録:
+
+- `.local/results/parallel-orchestration-check.log`
+- `.local/results/resource-lifecycle-check.log`
+- `.local/results/parallel-hyperv-owners.json`
+- `.local/results/parallel-hyperv-final.json`
+- `.local/results/parallel-hyperv-guest-*.log`
+- `.local/results/parallel-hyperv-retry-build-state.json`
+- `.local/results/parallel-hyperv-retry.log`
+- `.local/results/parallel-hyperv-application-build.log`
+- `.local/results/parallel-hyperv-application-resource-retry.log`
+- `.local/results/parallel-hyperv-application-check.log`
+- `.local/results/parallel-hyperv-application-final.json`
+- `.local/results/parallel-hyperv-cleanup.json`
+
+### 4台構成とベンチ用VM（逐次構築時）
 
 `New-Isucon13VM.ps1`の既定構成をアプリ3台＋ベンチ1台に変更した。
 子スクリプトを検証用の代替に置き換え、次を確認した。

@@ -5,8 +5,7 @@ param(
     [Parameter(Mandatory)][string]$IsoPath,
     [string]$SwitchName = 'Default Switch',
     [long]$MemoryStartupBytes = 4GB,
-    [int]$ProcessorCount = 2,
-    [ValidateRange(0,1000000000)][uint64]$MaximumIOPS = 32000,
+    [int]$ProcessorCount = 4,
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
 )
 
@@ -40,7 +39,6 @@ $taskEncoding = [Text.UTF8Encoding]::new($false)
 
 New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
 $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes $MemoryStartupBytes -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
-Get-VMHardDiskDrive -VM $taskVM | Set-VMHardDiskDrive -MaximumIOPS $MaximumIOPS
 Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
 Disable-VMIntegrationService -VM $taskVM -Name VSS
 Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $false
@@ -89,7 +87,8 @@ Disable-VMConsoleSupport -VMName $Name
 Start-VM -Name $Name
 $taskVM = Get-VM -Name $Name
 $taskOptions = @('-i', $taskKey, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
-    '-o', 'StrictHostKeyChecking=accept-new', '-o', "UserKnownHostsFile=$(Join-Path $taskRoot ".local\ssh\known_hosts_$Name")")
+    '-o', 'StrictHostKeyChecking=accept-new', '-o', "HostKeyAlias=$Name",
+    '-o', "UserKnownHostsFile=$(Join-Path $taskRoot ".local\ssh\known_hosts_$Name")")
 $taskDeadline = (Get-Date).AddMinutes(10)
 Write-Host 'UbuntuのIPv4とSSH接続を待っています。'
 do {

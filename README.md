@@ -79,7 +79,7 @@ CPU数を変更していた場合は、再実行にも`-ProcessorCount <構築�
 .\scripts\New-UbuntuVM.ps1 -Name '<VM名>' -IsoPath '<ISOのパス>' -OutputPath $outputPath
 ```
 
-ベンチ用VMの作成には`-MemoryStartupBytes 8GB`を追加する。
+ベンチ用VMの作成には`-MemoryMaximumBytes 8GB`を追加する。
 Ubuntuのインストール後、上記の役割に応じたAnsibleコマンドを実行する。
 
 ### 任意: HTTPS応答を確認する
@@ -147,7 +147,10 @@ cd /home/ubuntu/isucon13/bench
 | --- | --- | --- |
 | 台数 | 3台 | 1台 |
 | CPU | 各2 vCPU | 8 vCPU |
-| メモリ | 各4 GiB（固定） | 8 GiB（固定） |
+| メモリ方式 | 動的 | 動的 |
+| 最小メモリ | 各512 MiB | 512 MiB |
+| 起動時メモリ | 各2 GiB | 2 GiB |
+| 最大メモリ | 各4 GiB | 8 GiB |
 | ディスク容量 | 各40 GiB | 40 GiB |
 | ディスク形式 | 4Kn VHDX（論理・物理セクター各4 KiB） | 4Kn VHDX（論理・物理セクター各4 KiB） |
 | 最大IOPS | 各32000（Hyper-Vの8 KiB換算） | 制限なし |

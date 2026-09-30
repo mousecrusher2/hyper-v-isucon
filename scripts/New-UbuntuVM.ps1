@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory)][string]$IsoPath,
     [Parameter(Mandatory)][string]$OutputPath,
     [string]$SwitchName = 'Default Switch',
-    [long]$MemoryStartupBytes = 4GB,
+    [ValidateRange(2GB, [long]::MaxValue)][long]$MemoryMaximumBytes = 4GB,
     [int]$ProcessorCount = 4,
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
 )
@@ -41,10 +41,10 @@ $taskEncoding = [Text.UTF8Encoding]::new($false)
 & "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso"
 
 New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
-$taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes $MemoryStartupBytes -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
+$taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
 Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
 Disable-VMIntegrationService -VM $taskVM -Name VSS
-Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $false
+Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 512MB -StartupBytes 2GB -MaximumBytes $MemoryMaximumBytes
 $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
 Set-VMFirmware -VM $taskVM -EnableSecureBoot Off -FirstBootDevice $taskDVD

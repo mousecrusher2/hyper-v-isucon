@@ -55,6 +55,21 @@ ISO生成からディスク再起動・SSH接続まで318秒で完了した。�
 - `.local/checks/wslc-iso/orchestration.log`
 - `.local/checks/wslc-iso/cleanup-result.json`
 
+### 初回起動前のコンソール無効化（2026-10-01）
+
+`Disable-VMConsoleSupport`を最初の`Start-VM`より前へ移し、
+`console-off-check-20261001`でISO生成から無人インストール・SSH接続まで確認した。
+インストール中、仮想ディスプレイ・キーボード・マウスがすべて0件であることを確認した。
+326.9秒で完了し、UEFI・sudo・cloud-init・メディアのチェックサムも正常だった。
+検証用VM・VHDX・使用済みISOは削除済み。元のISOと既存VMは保持した。
+
+記録:
+
+- `.local/checks/console-before-install/console-during-install.json`
+- `.local/checks/console-before-install/install-result.json`
+- `.local/checks/console-before-install/guest-check.log`
+- `.local/checks/console-before-install/cleanup-result.json`
+
 ### 保存先の指定（2026-10-01）
 
 3つのスクリプトに必須の`-OutputPath`を追加し、指定先の`vm/`・`ssh/`・`logs/`へ出力する構成に変更した。

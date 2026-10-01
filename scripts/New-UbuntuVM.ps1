@@ -52,6 +52,7 @@ Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 512MB -Startu
 $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
 Set-VMFirmware -VM $taskVM -EnableSecureBoot Off -FirstBootDevice $taskDVD
+Disable-VMConsoleSupport -VMName $Name
 Start-VM -VM $taskVM
 
 $taskDeadline = (Get-Date).AddMinutes($TimeoutMinutes)
@@ -65,7 +66,6 @@ foreach ($taskDVD in Get-VMDvdDrive -VMName $Name) {
 }
 if (-not $AutoinstallIso) { Remove-Item -LiteralPath $taskIso }
 Set-VMFirmware -VMName $Name -FirstBootDevice (Get-VMHardDiskDrive -VMName $Name)
-Disable-VMConsoleSupport -VMName $Name
 Start-VM -Name $Name
 $taskVM = Get-VM -Name $Name
 $taskOptions = @('-i', $taskKey, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',

@@ -41,9 +41,10 @@ function Wait-GuestSSH {
 }
 
 $taskDisk | Set-VMHardDiskDrive -MaximumIOPS 0
-if ($taskVM.ProcessorCount -ne 4) {
+if ($taskVM.ProcessorCount -ne 4 -or (Get-VMMemory -VM $taskVM).Minimum -ne 2GB) {
     Stop-VM -VM $taskVM
     Set-VM -VM $taskVM -ProcessorCount 4
+    Set-VMMemory -VM $taskVM -MinimumBytes 2GB
     Start-VM -VM $taskVM
 }
 $taskIP = Wait-GuestSSH
@@ -58,6 +59,7 @@ if ($LASTEXITCODE -ne 0) { throw '公式ISUCON13 Ansibleの実行に失敗しま
 
 Stop-VM -VM $taskVM
 Set-VM -VM $taskVM -ProcessorCount $ProcessorCount
+Set-VMMemory -VM $taskVM -MinimumBytes 512MB
 $taskMaximumIOPS = if ($Role -eq 'application') { 32000 } else { 0 }
 Get-VMHardDiskDrive -VM $taskVM | Set-VMHardDiskDrive -MaximumIOPS $taskMaximumIOPS
 Start-VM -VM $taskVM

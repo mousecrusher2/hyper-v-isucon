@@ -1,13 +1,48 @@
 # 実機検証記録
 
-検証日: 2026-09-30・2026-10-01（JST）
+検証日: 2026-09-30・2026-10-01・2026-10-02（JST）
 
 ## 現行構成
 
 `New-Isucon13VM.ps1`で、アプリ用3台・ベンチ用1台をISOから並列に無人インストールし、
-各VMに役割に応じた公式Ansibleを実行する。構築中は全VMで4 vCPU・IOPS制限なし。
-各VMのAnsible成功後に、アプリ用は2 vCPU・最大32000 IOPS、ベンチ用は8 vCPU・IOPS制限なしに設定する。
+各VMに役割に応じた公式Ansibleを実行する。構築中は全VMで4 vCPU・最小メモリ2 GiB・IOPS制限なし。
+各VMのAnsible成功後に、最小メモリを512 MiBへ戻し、アプリ用は2 vCPU・最大32000 IOPS、ベンチ用は8 vCPU・IOPS制限なしに設定する。
 CPU設定後の再起動でIPが変わった場合は、環境変数を更新して公式のDNS初期化スクリプトを実行する。
+
+### 構築中の最小メモリ（2026-10-02）
+
+新規VMを初回起動前から最小2 GiBに設定するよう変更した。
+Ansibleの再実行でも、CPU数または最小メモリが構築用の値と異なる場合は停止して4 vCPU・最小2 GiBへ変更する。
+成功後の停止中に最小メモリを512 MiBへ戻す。失敗時は構築用の設定を保持する。
+起動時メモリ・最大メモリの設定は維持する。
+
+変更したPowerShellの構文と差分を確認した。この変更では実機VMや公式Ansibleを実行していない。
+
+### 事前ビルド用ツールの導入・削除（2026-10-02）
+
+`preparation-tools-check-20261002`へUbuntu Server 22.04.5を無人インストールした。
+変更後の`provision-isucon13.sh`をそのまま使用し、アプリ用・ベンチ用を順に実行した。
+公式Ansibleの呼び出し先だけを検査コマンドに置き換え、事前ビルドの完了と呼び出し時点の状態を確認した。
+
+| 確認 | 結果 |
+| --- | --- |
+| 準備用Go | Snapの1.21/stableから1.21.13を導入 |
+| 準備用Node.js | NodeSourceの20系から20.20.2を導入 |
+| アプリ用の事前ビルド | 公式`make_latest_files.sh`でベンチ・フロントエンド・環境確認プログラム・webappアーカイブを生成 |
+| ベンチ用の事前ビルド | `make -C bench linux_amd64`でベンチバイナリを生成 |
+| Ansible呼び出し時点 | GoのSnapは削除済み。Go・Node.js・npm・Corepack・Yarnのコマンドは存在せず、ビルド成果物とAnsible本体は存在 |
+| NodeSourceの設定 | APTのソース設定・鍵を削除済み |
+| 検証後の削除 | 所有VM IDを照合して検証用VM・VHDX・ISOを削除。既存VM5台は保持 |
+
+既知のNodeヒープ上限の問題と切り分けるため、事前ビルドの検証時だけ最小メモリを2 GiBに設定した。
+この検証時点では、構築スクリプトの最小メモリは512 MiBだった。公式Ansible本体の実行と4台の並列構築は、この検証には含めていない。
+
+記録:
+
+- `.local/checks/preparation-tools-20261002/application.log`
+- `.local/checks/preparation-tools-20261002/benchmarker.log`
+- `.local/checks/preparation-tools-20261002/test-memory.json`
+- `.local/checks/preparation-tools-20261002/cleanup-result.json`
 
 ### WSLCによるISO生成と入力なしのインストール（2026-10-01）
 

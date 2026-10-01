@@ -147,7 +147,7 @@ cd /home/ubuntu/isucon13/bench
 ISOの生成にはWSLCの`ubuntu:26.04`を使用し、コンテナ内で`apt-get update`・`apt-get upgrade`後にxorrisoをインストールする。
 コンテナは処理後に削除する。既存のWSLディストリビューションへのインストール操作は不要。
 
-### VMの構成（既定値）
+### 構築後のVMの構成（既定値）
 
 | 項目 | アプリ用VM | ベンチ用VM |
 | --- | --- | --- |
@@ -161,10 +161,10 @@ ISOの生成にはWSLCの`ubuntu:26.04`を使用し、コンテナ内で`apt-get
 | ディスク形式 | 4Kn VHDX（論理・物理セクター各4 KiB） | 4Kn VHDX（論理・物理セクター各4 KiB） |
 | 最大IOPS | 各32000（Hyper-Vの8 KiB換算） | 制限なし |
 
-構築中は全VMを4 vCPU・IOPS制限なしで稼働させる。
-各VMのAnsibleが成功した後、シャットダウンして表のCPU・IOPS設定を適用し、再起動する。
+構築中は全VMを4 vCPU・最小メモリ2 GiB・IOPS制限なしで稼働させる。
+各VMのAnsibleが成功した後、シャットダウンして表のCPU・最小メモリ・IOPS設定を適用し、再起動する。
 この再起動でIPが変わった場合は、アプリ用VMの環境変数とDNS設定を更新する。
-Ansibleの再実行時も、構築中は4 vCPU・IOPS制限なしにし、成功後に構築後の設定へ戻す。
+Ansibleの再実行時も、構築中は4 vCPU・最小メモリ2 GiB・IOPS制限なしにし、成功後に構築後の設定へ戻す。
 
 ### 生成物と共通の設定
 

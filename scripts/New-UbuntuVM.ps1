@@ -48,7 +48,7 @@ New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSec
 $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
 Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
 Disable-VMIntegrationService -VM $taskVM -Name VSS
-Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 512MB -StartupBytes 2GB -MaximumBytes $MemoryMaximumBytes
+Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 2GB -StartupBytes 2GB -MaximumBytes $MemoryMaximumBytes
 $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
 Set-VMFirmware -VM $taskVM -EnableSecureBoot Off -FirstBootDevice $taskDVD

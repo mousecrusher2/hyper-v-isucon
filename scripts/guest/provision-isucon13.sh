@@ -14,17 +14,23 @@ export UV_USE_IO_URING=0
 test "$(id -un)" = ubuntu
 sudo -n cloud-init status --wait --long
 sudo -n apt-get update
-sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y ansible curl git make openssl xz-utils
+sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y ansible curl git gnupg make openssl snapd xz-utils
 
-# Prepare tools through the same xbuild project used by official ISUCON13.
-if test ! -d /home/ubuntu/xbuild/.git; then
-    git clone --depth 1 https://github.com/tagomoris/xbuild.git /home/ubuntu/xbuild
-fi
-/home/ubuntu/xbuild/go-install 1.21.2 /home/ubuntu/local/golang
+# Prepare build tools using the same packages as wsl-isucon.
+sudo -n snap wait system seed.loaded
+sudo -n snap install go --channel=1.21/stable --classic
+export PATH="/snap/bin:$PATH"
 if test "$role" = application; then
-    /home/ubuntu/xbuild/node-install v20.10.0 /home/ubuntu/local/node
+    sudo -n mkdir -p /etc/apt/keyrings
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key |
+        sudo -n gpg --batch --yes --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main' |
+        sudo -n tee /etc/apt/sources.list.d/nodesource.list >/dev/null
+    sudo -n apt-get update
+    sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
+    sudo -n npm install -g corepack
+    sudo -n corepack enable
 fi
-export PATH="/home/ubuntu/local/golang/bin:/home/ubuntu/local/node/bin:$PATH"
 
 if test ! -d /home/ubuntu/isucon13/.git; then
     git clone --depth 1 https://github.com/isucon/isucon13.git /home/ubuntu/isucon13
@@ -61,6 +67,17 @@ else
     mkdir -p provisioning/ansible/roles/bench/files
     cp bench/bin/bench_linux_amd64 provisioning/ansible/roles/bench/files/
 fi
+
+# Remove the preparation tools before the official playbook installs its tools.
+if test "$role" = application; then
+    sudo -n corepack disable
+    sudo -n npm uninstall -g corepack
+    sudo -n env DEBIAN_FRONTEND=noninteractive apt-get purge -y nodejs
+    sudo -n rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/keyrings/nodesource.gpg
+fi
+sudo -n snap remove --purge go
+hash -r
+
 cd provisioning/ansible
 ansible-playbook -i inventory/localhost --limit "$role" \
     --extra-vars '{"ansible_become_flags":"-H -S -n --preserve-env=UV_USE_IO_URING"}' "$playbook"

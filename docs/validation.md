@@ -9,6 +9,52 @@
 各VMのAnsible成功後に、アプリ用は2 vCPU・最大32000 IOPS、ベンチ用は8 vCPU・IOPS制限なしに設定する。
 CPU設定後の再起動でIPが変わった場合は、環境変数を更新して公式のDNS初期化スクリプトを実行する。
 
+### WSLCによるISO生成と入力なしのインストール（2026-10-01）
+
+`New-AutoinstallIso.ps1`で、WSLCの公式`ubuntu:26.04`を一時コンテナとして起動した。
+コンテナ内で`apt-get update`・`apt-get upgrade -y`を実行してからxorrisoをインストールした。
+実際に3パッケージが更新され、更新を保留したパッケージは0だった。xorrisoのバージョンは1.5.6。
+
+`ubuntu-22.04.5-live-server-amd64.iso`からGRUB設定とチェックサム一覧を取り出し、
+メニュー待ち時間の解除と各カーネル起動引数への`autoinstall`追加、チェックサム更新を行った。
+xorrisoの`-boot_image any replay`でUEFI・BIOS起動情報を引き継いでISOを生成し、
+書き戻した設定とチェックサム一覧を再度読み出して一致を確認した。
+ISOとスクリプトの読み取り専用マウント、空白を含むWindows側の出力先も使用できた。
+
+変更後の`New-UbuntuVM.ps1`を使い、`wslc-iso-check-20261001`を構築した。
+検証時はVM作成直後に所有IDを記録する処理だけ追加し、インストール処理は変更していない。
+ISO生成からディスク再起動・SSH接続まで318秒で完了した。仮想キーボードによる入力処理は使用していない。
+
+| 確認 | 結果 |
+| --- | --- |
+| OS・起動方式 | Ubuntu 22.04・UEFI |
+| CPU・メモリ | 4 vCPU・動的メモリ（起動2 GiB、最小512 MiB、最大4 GiB） |
+| ディスク | 40 GiB・4Kn VHDX、ルートはext4、LVMなし |
+| 管理ユーザー | `ubuntu`、指定ホスト名、公開鍵SSH・passwordless sudo成功 |
+| SSHパスワード認証 | 無効 |
+| cloud-init | `done`、errors・recoverable_errorsなし |
+| インストーラーの起動引数 | `BOOT_IMAGE=/casper/vmlinuz autoinstall ---` |
+| メディアのチェックサム | `pass`、不一致なし |
+| 使用済みのインストールISO | DVD解除後にスクリプトが削除 |
+
+`New-Isucon13VM.ps1`の子処理を代替した検証では、ISO生成が一度だけ呼ばれ、
+4つの並列ジョブへ同じ加工済みISOを渡すことを確認した。
+正常終了時には共有ISOを削除し、失敗したVMがまだISOを使用している場合は保持する。
+1台のインストールが失敗した場合も、残る3台の処理は完了した。
+この変更では公式Ansibleの再実行と4台の実機インストールは行っていない。
+
+検証用VM・VHDX・加工ISOは削除済み。一時コンテナも終了後に削除された。
+元のUbuntu ISOは検証前後のSHA-256が一致し、既存の`uefi-test`は停止状態のまま保持した。
+
+記録:
+
+- `.local/checks/wslc-iso/iso-build.log`
+- `.local/checks/wslc-iso/install.log`
+- `.local/checks/wslc-iso/guest-check.log`
+- `.local/checks/wslc-iso/install-result.json`
+- `.local/checks/wslc-iso/orchestration.log`
+- `.local/checks/wslc-iso/cleanup-result.json`
+
 ### 保存先の指定（2026-10-01）
 
 3つのスクリプトに必須の`-OutputPath`を追加し、指定先の`vm/`・`ssh/`・`logs/`へ出力する構成に変更した。

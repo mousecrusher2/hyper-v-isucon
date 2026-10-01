@@ -10,6 +10,7 @@ Ubuntu Server ISOからアプリ用3台・ベンチ用1台のVMを作成し、IS
 次を用意する。
 
 - Windows＋Hyper-V、PowerShell 7.3以上、Windows OpenSSH Client。
+- WSLCを利用できるWSL 2.9.3以上（`wslc version`で確認）。
 - 管理者またはHyper-V Administratorsグループの権限。
 - Ubuntu Server 22.04 amd64のインストーラーISO。
 
@@ -134,12 +135,17 @@ cd /home/ubuntu/isucon13/bench
 | スクリプト | 自動で行う処理 |
 | --- | --- |
 | `New-Isucon13VM.ps1` | アプリ用3台・ベンチ用1台を並列で構築 |
+| `New-AutoinstallIso.ps1` | Ubuntu 26.04の一時コンテナでパッケージを更新し、xorrisoで無人インストール用ISOを生成 |
 | `New-UbuntuVM.ps1` | 新規VMの作成、Ubuntuの無人インストール、SSH・sudo・cloud-initの確認 |
 | `Invoke-Isucon13Ansible.ps1` | 必要なソフトウェアと公式ソースの取得、.testへの変更、各役割に必要なビルドと公式Ansibleの実行。アプリ用VMでは証明書を生成し、サービスを設定・起動。成功後にCPU・IOPSを設定して再起動 |
 
-`New-Isucon13VM.ps1`は、各VMで`New-UbuntuVM.ps1`の完了後に`Invoke-Isucon13Ansible.ps1`を呼び出す。
+`New-Isucon13VM.ps1`は、インストール用ISOを一度生成して4台で共有する。
+各VMで`New-UbuntuVM.ps1`の完了後に`Invoke-Isucon13Ansible.ps1`を呼び出す。
 `Invoke-Isucon13Ansible.ps1`は、Ubuntu内で`scripts/guest/provision-isucon13.sh`を実行する。
 公式Ansibleは、アプリ用VMには`application.yml`、ベンチ用VMには`benchmark.yml`を使用する。
+
+ISOの生成にはWSLCの`ubuntu:26.04`を使用し、コンテナ内で`apt-get update`・`apt-get upgrade`後にxorrisoをインストールする。
+コンテナは処理後に削除する。既存のWSLディストリビューションへのインストール操作は不要。
 
 ### VMの構成（既定値）
 
@@ -168,7 +174,7 @@ Ansibleの再実行時も、構築中は4 vCPU・IOPS制限なしにし、成功
 | --- | --- |
 | VMのディスク・設定 | `vm/<VM名>/` |
 | SSH鍵・接続先の記録 | `ssh/` |
-| Ansibleの実行ログ | `logs/` |
+| ISO生成・Ansibleの実行ログ | `logs/` |
 
 - 全VMでGeneration 2、Secure Boot無効を使用する。
 - ボリュームシャドウコピー（VSS）とHyper-Vコンソールは無効。自動開始アクションはなし、自動停止アクションはシャットダウン。

@@ -4,6 +4,7 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string]$Name,
     [Parameter(Mandatory)][string]$IsoPath,
     [Parameter(Mandatory)][string]$OutputPath,
+    [switch]$AutoinstallIso,
     [string]$SwitchName = 'Default Switch',
     [ValidateRange(2GB, [long]::MaxValue)][long]$MemoryMaximumBytes = 4GB,
     [int]$ProcessorCount = 4,
@@ -36,6 +37,12 @@ $taskEncoding = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText("$taskVmDir\seed\user-data", $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
 [IO.File]::WriteAllText("$taskVmDir\seed\meta-data", "instance-id: iid-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
 & "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso"
+if (-not $AutoinstallIso) {
+    $taskSourceIso = $taskIso
+    $taskIso = Join-Path $taskVmDir 'install.iso'
+    & "$PSScriptRoot\New-AutoinstallIso.ps1" -SourceIsoPath $taskSourceIso -IsoPath $taskIso `
+        -LogPath (Join-Path $taskOutputRoot "logs\iso-$Name.log")
+}
 
 New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
 $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
@@ -46,32 +53,6 @@ $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
 Set-VMFirmware -VM $taskVM -EnableSecureBoot Off -FirstBootDevice $taskDVD
 Start-VM -VM $taskVM
-Start-Sleep -Seconds 3
-$taskComputer = Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_ComputerSystem -Filter "Name='$($taskVM.Id)'"
-$taskKeyboard = Get-CimAssociatedInstance -InputObject $taskComputer -ResultClassName Msvm_Keyboard | Select-Object -First 1
-if (-not $taskKeyboard) { throw 'Hyper-Vの仮想キーボードを取得できませんでした。' }
-function Send-GuestKey([uint32]$Code) {
-    $taskResult = Invoke-CimMethod -InputObject $taskKeyboard -MethodName TypeKey -Arguments @{ KeyCode = $Code }
-    if ($taskResult.ReturnValue -ne 0) { throw '仮想キーボードの入力に失敗しました。' }
-}
-function Send-GuestText([string]$Text) {
-    $taskResult = Invoke-CimMethod -InputObject $taskKeyboard -MethodName TypeText -Arguments @{ AsciiText = $Text }
-    if ($taskResult.ReturnValue -ne 0) { throw '仮想キーボードの文字入力に失敗しました。' }
-}
-Send-GuestKey 27
-Start-Sleep -Seconds 1
-Send-GuestKey 27
-Start-Sleep -Seconds 1
-# Edit the ISO's standard menu entry and add only the autoinstall flag.
-Send-GuestText 'e'
-Start-Sleep -Seconds 1
-Send-GuestKey 40 # Down: blank line
-Send-GuestKey 40 # Down: gfxpayload
-Send-GuestKey 40 # Down: linux
-Send-GuestKey 35 # End
-1..3 | ForEach-Object { Send-GuestKey 37 } # Before ---
-Send-GuestText 'autoinstall '
-Send-GuestKey 121 # F10: boot the existing entry
 
 $taskDeadline = (Get-Date).AddMinutes($TimeoutMinutes)
 Write-Host 'Ubuntu autoinstallの完了を待っています。'
@@ -82,6 +63,7 @@ while ((Get-VM -Name $Name).State -ne 'Off') {
 foreach ($taskDVD in Get-VMDvdDrive -VMName $Name) {
     Set-VMDvdDrive -VMName $Name -ControllerNumber $taskDVD.ControllerNumber -ControllerLocation $taskDVD.ControllerLocation -Path $null
 }
+if (-not $AutoinstallIso) { Remove-Item -LiteralPath $taskIso }
 Set-VMFirmware -VMName $Name -FirstBootDevice (Get-VMHardDiskDrive -VMName $Name)
 Disable-VMConsoleSupport -VMName $Name
 Start-VM -Name $Name

@@ -30,6 +30,7 @@ foreach ($taskVMName in $taskMachines.Name) {
 }
 $taskIso = (Resolve-Path -LiteralPath $IsoPath).Path
 Get-VMSwitch -Name $SwitchName -ErrorAction Stop | Out-Null
+$taskInstallIso = Join-Path $taskOutputRoot "vm\install-$([guid]::NewGuid()).iso"
 # Prepare the shared key before starting workers.
 $taskKey = Join-Path $taskOutputRoot 'ssh\id_ed25519'
 New-Item -ItemType Directory -Path (Split-Path -Parent $taskKey) -Force | Out-Null
@@ -40,17 +41,19 @@ if (-not (Test-Path -LiteralPath $taskKey)) {
 
 $taskJobs = @()
 try {
+    & "$PSScriptRoot\New-AutoinstallIso.ps1" -SourceIsoPath $taskIso -IsoPath $taskInstallIso `
+        -LogPath (Join-Path $taskOutputRoot "logs\iso-$([IO.Path]::GetFileNameWithoutExtension($taskInstallIso)).log")
     foreach ($taskMachine in $taskMachines) {
         $taskJobs += Start-Job -Name $taskMachine.Name -ScriptBlock {
             param($Scripts, $Machine, $Iso, $Switch, $Timeout, $Output)
             $ErrorActionPreference = 'Stop'
             Set-StrictMode -Version Latest
             Write-Host "VMを構築します: $($Machine.Name) ($($Machine.Role))"
-            & "$Scripts\New-UbuntuVM.ps1" -Name $Machine.Name -IsoPath $Iso -OutputPath $Output -SwitchName $Switch `
+            & "$Scripts\New-UbuntuVM.ps1" -Name $Machine.Name -IsoPath $Iso -AutoinstallIso -OutputPath $Output -SwitchName $Switch `
                 -MemoryMaximumBytes $Machine.MemoryMaximum -ProcessorCount 4 -TimeoutMinutes $Timeout | Out-Null
             & "$Scripts\Invoke-Isucon13Ansible.ps1" -VMName $Machine.Name -OutputPath $Output -Role $Machine.Role -ProcessorCount $Machine.CPUs
             Write-Host "ISUCON13の構築が完了しました: $($Machine.Name)"
-        } -ArgumentList $PSScriptRoot, $taskMachine, $taskIso, $SwitchName, $TimeoutMinutes, $taskOutputRoot
+        } -ArgumentList $PSScriptRoot, $taskMachine, $taskInstallIso, $SwitchName, $TimeoutMinutes, $taskOutputRoot
     }
     $taskJobs | Receive-Job -Wait -ErrorAction Continue
     $taskFailed = @($taskJobs | Where-Object State -ne 'Completed')
@@ -58,4 +61,8 @@ try {
 } finally {
     $taskJobs | Where-Object State -in 'NotStarted','Running' | Stop-Job
     $taskJobs | Remove-Job
+    if ((Test-Path -LiteralPath $taskInstallIso) -and
+        -not @(Get-VM | Get-VMDvdDrive | Where-Object Path -eq $taskInstallIso).Count) {
+        Remove-Item -LiteralPath $taskInstallIso
+    }
 }

@@ -6,6 +6,23 @@ autoinstall:
   storage:
     layout:
       name: direct
+  network:
+    version: 2
+    renderer: networkd
+    ethernets:
+      uplink:
+        match:
+          macaddress: "{{uplink_mac}}"
+        set-name: uplink
+        dhcp4: true
+      isucon:
+        match:
+          macaddress: "{{isucon_mac}}"
+        set-name: isucon
+        dhcp4: false
+        dhcp6: false
+        accept-ra: false
+        addresses: [{{ip_address}}/{{prefix_length}}]
   packages:
     - linux-cloud-tools-virtual
   ssh:
@@ -16,4 +33,8 @@ autoinstall:
     users: [default]
     ssh_authorized_keys:
       - {{ssh_public_key}}
+    write_files:
+      - path: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+        content: |
+          network: {config: disabled}
   shutdown: poweroff

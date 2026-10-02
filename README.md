@@ -11,10 +11,10 @@ Ubuntu Server ISOからアプリ用3台・ベンチ用1台のVMを作成し、IS
 
 - Windows＋Hyper-V、PowerShell 7.3以上、Windows OpenSSH Client。
 - WSLCを利用できるWSL 2.9.3以上（`wslc version`で確認）。
-- 管理者またはHyper-V Administratorsグループの権限。
+- Windowsの管理者権限。
 - Ubuntu Server 22.04 amd64のインストーラーISO。
 
-以下の構築コマンドは、WindowsのPowerShellでリポジトリのルートディレクトリから実行する。
+以下の構築コマンドは、PowerShell 7を「管理者として実行」で開き、リポジトリのルートディレクトリから実行する。
 
 ### VMを構築する
 
@@ -27,7 +27,10 @@ $outputPath = 'D:\isucon13'
 
 ISOが別の場所にある場合は、`-IsoPath`の値を変更する。
 保存先を変更する場合は、`$outputPath`の値を変更する。`-OutputPath`は必須で、フォルダーは事前に作成しなくてよい。
-仮想スイッチを変更する場合は、`-SwitchName 'スイッチ名'`を追加する。省略時は`Default Switch`を使用する。
+インターネット接続用の仮想スイッチを変更する場合は、`-SwitchName 'スイッチ名'`を追加する。省略時は`Default Switch`を使用する。
+
+固定IPのアドレス帯は既定で`192.168.13.0/24`。
+既存ネットワークとの重複でエラーになった場合は、`-NetworkPrefix '192.168.213.0/24'`などを追加して、重複しないアドレス帯を指定する。
 
 既定のVM名は、アプリ用が`isucon13-app01`・`isucon13-app02`・`isucon13-app03`、ベンチ用が`isucon13-bench`。
 名前を変更する場合は、`-ApplicationName 'app01','app02','app03' -BenchmarkerName 'bench'`を追加する。
@@ -42,7 +45,7 @@ WindowsのPowerShellで、構築時の保存先を`$outputPath`、接続した�
 ```powershell
 $outputPath = 'D:\isucon13'
 $vmName = 'isucon13-app01'
-$vmIP = (Get-VMNetworkAdapter -VMName $vmName).IPAddresses |
+$vmIP = (Get-VMNetworkAdapter -VMName $vmName -Name isucon).IPAddresses |
     Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } |
     Select-Object -First 1
 $knownHosts = Join-Path $outputPath "ssh\known_hosts_$vmName"
@@ -74,13 +77,14 @@ $vmName = 'isucon13-app02'
 
 CPU数を変更していた場合は、再実行にも`-ProcessorCount <構築後のCPU数>`を指定する。
 
-未作成のVMが残った場合は、VM名とISOのパスを指定してUbuntuをインストールする。
+未作成のVMが残った場合は、VM名・ISOのパス・構築開始時に表示された固定IPとプレフィックス長を指定してUbuntuをインストールする。
 
 ```powershell
-.\scripts\New-UbuntuVM.ps1 -Name '<VM名>' -IsoPath '<ISOのパス>' -OutputPath $outputPath
+.\scripts\New-UbuntuVM.ps1 -Name '<VM名>' -IsoPath '<ISOのパス>' -OutputPath $outputPath -IPAddress '<固定IP>' -PrefixLength <プレフィックス長>
 ```
 
 ベンチ用VMの作成には`-MemoryMaximumBytes 8GB`を追加する。
+インターネット接続用のスイッチを変更していた場合は、`-SwitchName 'スイッチ名'`も構築時の設定に合わせる。
 Ubuntuのインストール後、上記の役割に応じたAnsibleコマンドを実行する。
 
 ### 任意: HTTPS応答を確認する
@@ -89,7 +93,7 @@ Ubuntuのインストール後、上記の役割に応じたAnsibleコマンド�
 
 ```powershell
 $vmName = 'isucon13-app01'
-(Get-VMNetworkAdapter -VMName $vmName).IPAddresses
+(Get-VMNetworkAdapter -VMName $vmName -Name isucon).IPAddresses
 ```
 
 以下の`<VMのIPv4>`を、確認したIPv4アドレスに置き換えて実行する。
@@ -112,8 +116,8 @@ curl.exe --noproxy '*' --insecure --resolve pipe.u.isucon.test:443:<VMのIPv4> h
 WindowsのPowerShellで、対象アプリとベンチ用VMのIPv4アドレスを確認する。
 
 ```powershell
-(Get-VMNetworkAdapter -VMName 'isucon13-app01').IPAddresses
-(Get-VMNetworkAdapter -VMName 'isucon13-bench').IPAddresses
+(Get-VMNetworkAdapter -VMName 'isucon13-app01' -Name isucon).IPAddresses
+(Get-VMNetworkAdapter -VMName 'isucon13-bench' -Name isucon).IPAddresses
 ```
 
 「[VMへSSH接続する](#vmへssh接続する)」の手順で、`$vmName = 'isucon13-bench'`を指定してログインする。
@@ -134,12 +138,19 @@ cd /home/ubuntu/isucon13/bench
 
 | スクリプト | 自動で行う処理 |
 | --- | --- |
-| `New-Isucon13VM.ps1` | アプリ用3台・ベンチ用1台を並列で構築 |
+| `New-Isucon13VM.ps1` | 固定IP用ネットワークを準備し、アプリ用3台・ベンチ用1台を並列で構築 |
+| `Initialize-IsuconNetwork.ps1` | アドレス帯の重複を確認し、Internal Switchを新規作成。Windows側の固定IPを設定し、VM4台の固定IPを割り当て |
 | `New-AutoinstallIso.ps1` | Ubuntu 26.04の一時コンテナでパッケージを更新し、xorrisoで無人インストール用ISOを生成 |
-| `New-UbuntuVM.ps1` | 新規VMの作成、Ubuntuの無人インストール、SSH・sudo・cloud-initの確認 |
+| `New-UbuntuVM.ps1` | 2枚のNICを持つ新規VMの作成、固定IPの設定、Ubuntuの無人インストール、SSH・sudo・cloud-initの確認 |
 | `Invoke-Isucon13Ansible.ps1` | 必要なソフトウェアと公式ソースの取得、.testへの変更、各役割に必要なビルドと公式Ansibleの実行。アプリ用VMでは証明書を生成し、サービスを設定・起動。成功後にCPU・IOPSを設定して再起動 |
 
-`New-Isucon13VM.ps1`は、インストール用ISOを一度生成して4台で共有する。
+`New-Isucon13VM.ps1`は、固定IP用のInternal Switchを毎回新規作成する。名前の既定値は`ISUCON13`。同名のスイッチが既にある場合はエラーにする。
+Windows側の仮想NICにはアドレス帯の先頭の使用可能IPを設定し、続く4つを各VMへ割り当てる。
+既定値はWindows側が`192.168.13.1/24`、アプリ用が`.2`〜`.4`、ベンチ用が`.5`。各VMの固定IPは構築開始時に表示する。
+Windows側の既存ネットワークとの重複を設定前に検査し、検出した場合はエラーにする。設定中に失敗した場合は、自動作成したスイッチを削除する。
+
+SSH鍵とインストール用ISOの準備が成功してから、固定IP用ネットワークを作成する。
+インストール用ISOは一度生成して4台で共有する。
 各VMで`New-UbuntuVM.ps1`の完了後に`Invoke-Isucon13Ansible.ps1`を呼び出す。
 `Invoke-Isucon13Ansible.ps1`は、Ubuntu内で`scripts/guest/provision-isucon13.sh`を実行する。
 公式Ansibleは、アプリ用VMには`application.yml`、ベンチ用VMには`benchmark.yml`を使用する。
@@ -152,6 +163,7 @@ ISOの生成にはWSLCの`ubuntu:26.04`を使用し、コンテナ内で`apt-get
 | 項目 | アプリ用VM | ベンチ用VM |
 | --- | --- | --- |
 | 台数 | 3台 | 1台 |
+| 固定IP | `192.168.13.2`・`.3`・`.4`（/24） | `192.168.13.5/24` |
 | CPU | 各2 vCPU | 8 vCPU |
 | メモリ方式 | 動的 | 動的 |
 | 最小メモリ | 各512 MiB | 512 MiB |
@@ -163,8 +175,11 @@ ISOの生成にはWSLCの`ubuntu:26.04`を使用し、コンテナ内で`apt-get
 
 構築中は全VMを4 vCPU・最小メモリ2 GiB・IOPS制限なしで稼働させる。
 各VMのAnsibleが成功した後、シャットダウンして表のCPU・最小メモリ・IOPS設定を適用し、再起動する。
-この再起動でIPが変わった場合は、アプリ用VMの環境変数とDNS設定を更新する。
 Ansibleの再実行時も、構築中は4 vCPU・最小メモリ2 GiB・IOPS制限なしにし、成功後に構築後の設定へ戻す。
+
+SSH・アプリ・ベンチの通信にはInternal Switch側の固定IPを使い、PowerDNSにもそのIPを登録する。
+インターネット接続にはもう1枚のNICを使い、Default SwitchなどからDHCPでIP・ゲートウェイ・DNSを取得する。
+固定IP側ではDHCP・IPv6 RAを無効にし、ゲートウェイを設定しない。cloud-initによるネットワーク設定の再生成は初回起動後に無効にする。
 
 ### 生成物と共通の設定
 
@@ -188,7 +203,6 @@ Ansibleの再実行時も、構築中は4 vCPU・最小メモリ2 GiB・IOPS制�
 
 - IOPS上限は、[gp3標準の3000 IOPS・125 MiB/s](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html)をこの制限によって下回らせないための保守的な値。[EBSが小さなI/Oを結合する場合](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-io-characteristics.html)も考慮し、4Knの最小I/Oを基準に`125 MiB/s ÷ 4 KiB = 32000`を採用している。データの読み書きでは、要求ごとの8 KiB換算の切り上げを含めても、換算数は転送量を4 KiBで割った値を超えない。
 - 実性能はホストのストレージや同時負荷に依存する。gp3と同じ性能を再現する設定ではない。
-- DNSには構築完了時のVMのIPv4アドレスを設定する。その後、DHCPでIPが変わった際の設定自動更新は未実装。
 - `--pretest-only`ではベンチ結果のJSONを作成しない。
 
 ## 検証記録・参考

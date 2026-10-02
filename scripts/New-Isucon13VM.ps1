@@ -1,4 +1,5 @@
 #requires -Version 7.3
+#requires -RunAsAdministrator
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$IsoPath,
@@ -6,6 +7,8 @@ param(
     [ValidateCount(3,3)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string[]]$ApplicationName = @('isucon13-app01', 'isucon13-app02', 'isucon13-app03'),
     [ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string]$BenchmarkerName = 'isucon13-bench',
     [string]$SwitchName = 'Default Switch',
+    [string]$InternalSwitchName = 'ISUCON13',
+    [string]$NetworkPrefix = '192.168.13.0/24',
     [ValidateRange(2GB, [long]::MaxValue)][long]$MemoryMaximumBytes = 4GB,
     [ValidateRange(1,1024)][int]$ProcessorCount = 2,
     [ValidateRange(2GB, [long]::MaxValue)][long]$BenchmarkerMemoryMaximumBytes = 8GB,
@@ -30,6 +33,7 @@ foreach ($taskVMName in $taskMachines.Name) {
 }
 $taskIso = (Resolve-Path -LiteralPath $IsoPath).Path
 Get-VMSwitch -Name $SwitchName -ErrorAction Stop | Out-Null
+if ($SwitchName -eq $InternalSwitchName) { throw 'インターネット用と固定IP用には別のスイッチを指定してください。' }
 $taskInstallIso = Join-Path $taskOutputRoot "vm\install-$([guid]::NewGuid()).iso"
 # Prepare the shared key before starting workers.
 $taskKey = Join-Path $taskOutputRoot 'ssh\id_ed25519'
@@ -43,17 +47,23 @@ $taskJobs = @()
 try {
     & "$PSScriptRoot\New-AutoinstallIso.ps1" -SourceIsoPath $taskIso -IsoPath $taskInstallIso `
         -LogPath (Join-Path $taskOutputRoot "logs\iso-$([IO.Path]::GetFileNameWithoutExtension($taskInstallIso)).log")
+    $taskNetwork = & "$PSScriptRoot\Initialize-IsuconNetwork.ps1" -SwitchName $InternalSwitchName -NetworkPrefix $NetworkPrefix
+    for ($taskIndex = 0; $taskIndex -lt $taskMachines.Count; $taskIndex++) {
+        $taskMachines[$taskIndex] | Add-Member -NotePropertyName IPAddress -NotePropertyValue $taskNetwork.VMAddresses[$taskIndex]
+        Write-Host "$($taskMachines[$taskIndex].Name): $($taskMachines[$taskIndex].IPAddress)/$($taskNetwork.PrefixLength)"
+    }
     foreach ($taskMachine in $taskMachines) {
         $taskJobs += Start-Job -Name $taskMachine.Name -ScriptBlock {
-            param($Scripts, $Machine, $Iso, $Switch, $Timeout, $Output)
+            param($Scripts, $Machine, $Iso, $Switch, $InternalSwitch, $PrefixLength, $Timeout, $Output)
             $ErrorActionPreference = 'Stop'
             Set-StrictMode -Version Latest
             Write-Host "VMを構築します: $($Machine.Name) ($($Machine.Role))"
             & "$Scripts\New-UbuntuVM.ps1" -Name $Machine.Name -IsoPath $Iso -AutoinstallIso -OutputPath $Output -SwitchName $Switch `
+                -InternalSwitchName $InternalSwitch -IPAddress $Machine.IPAddress -PrefixLength $PrefixLength `
                 -MemoryMaximumBytes $Machine.MemoryMaximum -ProcessorCount 4 -TimeoutMinutes $Timeout | Out-Null
             & "$Scripts\Invoke-Isucon13Ansible.ps1" -VMName $Machine.Name -OutputPath $Output -Role $Machine.Role -ProcessorCount $Machine.CPUs
             Write-Host "ISUCON13の構築が完了しました: $($Machine.Name)"
-        } -ArgumentList $PSScriptRoot, $taskMachine, $taskInstallIso, $SwitchName, $TimeoutMinutes, $taskOutputRoot
+        } -ArgumentList $PSScriptRoot, $taskMachine, $taskInstallIso, $SwitchName, $InternalSwitchName, $taskNetwork.PrefixLength, $TimeoutMinutes, $taskOutputRoot
     }
     $taskJobs | Receive-Job -Wait -ErrorAction Continue
     $taskFailed = @($taskJobs | Where-Object State -ne 'Completed')

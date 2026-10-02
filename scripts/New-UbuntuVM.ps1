@@ -1,4 +1,5 @@
 #requires -Version 7.3
+#requires -RunAsAdministrator
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string]$Name,
@@ -6,6 +7,9 @@ param(
     [Parameter(Mandatory)][string]$OutputPath,
     [switch]$AutoinstallIso,
     [string]$SwitchName = 'Default Switch',
+    [string]$InternalSwitchName = 'ISUCON13',
+    [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$IPAddress,
+    [Parameter(Mandatory)][ValidateRange(1,29)][int]$PrefixLength,
     [ValidateRange(2GB, [long]::MaxValue)][long]$MemoryMaximumBytes = 4GB,
     [int]$ProcessorCount = 4,
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
@@ -23,6 +27,12 @@ $taskDisk = Join-Path $taskVmDir 'disk.vhdx'
 $taskKey = Join-Path $taskOutputRoot 'ssh\id_ed25519'
 $taskKnownHosts = Join-Path $taskOutputRoot "ssh\known_hosts_$Name"
 Get-VMSwitch -Name $SwitchName -ErrorAction Stop | Out-Null
+if ($SwitchName -eq $InternalSwitchName) { throw 'インターネット用と固定IP用には別のスイッチを指定してください。' }
+if ((Get-VMSwitch -Name $InternalSwitchName -ErrorAction Stop).SwitchType -ne 'Internal') { throw '固定IP用のInternal Switchを指定してください。' }
+[Net.IPAddress]::Parse($IPAddress) | Out-Null
+if (@(Get-VM | Get-VMNetworkAdapter | Where-Object { $_.SwitchName -eq $InternalSwitchName -and $_.IPAddresses -contains $IPAddress }).Count) {
+    throw "固定IP $IPAddress は既にVMが使用しています。"
+}
 if (Get-VM -Name $Name -ErrorAction SilentlyContinue) { throw "VM $Name は既に存在します。" }
 if (Test-Path -LiteralPath $taskVmDir) { throw "$taskVmDir は既に存在します。" }
 New-Item -ItemType Directory -Path "$taskVmDir\seed",(Split-Path -Parent $taskKey) -Force | Out-Null
@@ -31,12 +41,7 @@ if (-not (Test-Path -LiteralPath $taskKey)) {
     if ($LASTEXITCODE -ne 0) { throw 'SSH鍵の生成に失敗しました。' }
 }
 $taskPublicKey = (Get-Content -LiteralPath "$taskKey.pub" -Raw).Trim()
-$taskUserData = (Get-Content -LiteralPath (Join-Path $taskRoot 'config\autoinstall.yaml') -Raw).
-    Replace('{{hostname}}', $Name).Replace('{{ssh_public_key}}', ($taskPublicKey | ConvertTo-Json -Compress))
 $taskEncoding = [Text.UTF8Encoding]::new($false)
-[IO.File]::WriteAllText("$taskVmDir\seed\user-data", $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
-[IO.File]::WriteAllText("$taskVmDir\seed\meta-data", "instance-id: iid-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
-& "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso"
 if (-not $AutoinstallIso) {
     $taskSourceIso = $taskIso
     $taskIso = Join-Path $taskVmDir 'install.iso'
@@ -46,13 +51,35 @@ if (-not $AutoinstallIso) {
 
 New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
 $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
+$taskUplink = Get-VMNetworkAdapter -VM $taskVM
+Rename-VMNetworkAdapter -VMNetworkAdapter $taskUplink -NewName uplink
+Add-VMNetworkAdapter -VM $taskVM -Name isucon -SwitchName $InternalSwitchName
 Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
 Disable-VMIntegrationService -VM $taskVM -Name VSS
 Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 2GB -StartupBytes 2GB -MaximumBytes $MemoryMaximumBytes
+Disable-VMConsoleSupport -VMName $Name
+# Generate locally administered unicast MACs with 46 random bits.
+foreach ($taskNic in Get-VMNetworkAdapter -VM $taskVM) {
+    do {
+        $taskMacBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(6)
+        $taskMacBytes[0] = ($taskMacBytes[0] -band 0xFC) -bor 0x02
+        $taskMac = [Convert]::ToHexString($taskMacBytes)
+        $taskExistingMacs = @((Get-VM | Get-VMNetworkAdapter).MacAddress) + @((Get-VMNetworkAdapter -ManagementOS).MacAddress)
+    } while ($taskMac -in $taskExistingMacs)
+    Set-VMNetworkAdapter -VMNetworkAdapter $taskNic -StaticMacAddress $taskMac
+}
+$taskUplinkMAC = (Get-VMNetworkAdapter -VM $taskVM -Name uplink).MacAddress.ToLowerInvariant() -replace '(..)(?!$)', '$1:'
+$taskIsuconMAC = (Get-VMNetworkAdapter -VM $taskVM -Name isucon).MacAddress.ToLowerInvariant() -replace '(..)(?!$)', '$1:'
+$taskUserData = (Get-Content -LiteralPath (Join-Path $taskRoot 'config\autoinstall.yaml') -Raw).
+    Replace('{{hostname}}', $Name).Replace('{{ssh_public_key}}', ($taskPublicKey | ConvertTo-Json -Compress)).
+    Replace('{{uplink_mac}}', $taskUplinkMAC).Replace('{{isucon_mac}}', $taskIsuconMAC).
+    Replace('{{ip_address}}', $IPAddress).Replace('{{prefix_length}}', [string]$PrefixLength)
+[IO.File]::WriteAllText("$taskVmDir\seed\user-data", $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
+[IO.File]::WriteAllText("$taskVmDir\seed\meta-data", "instance-id: iid-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
+& "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso"
 $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
 Set-VMFirmware -VM $taskVM -EnableSecureBoot Off -FirstBootDevice $taskDVD
-Disable-VMConsoleSupport -VMName $Name
 Start-VM -VM $taskVM
 
 $taskDeadline = (Get-Date).AddMinutes($TimeoutMinutes)
@@ -74,8 +101,7 @@ $taskOptions = @('-i', $taskKey, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5'
 $taskDeadline = (Get-Date).AddMinutes(10)
 Write-Host 'UbuntuのIPv4とSSH接続を待っています。'
 do {
-    $taskIP = (Get-VMNetworkAdapter -VM $taskVM).IPAddresses |
-        Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -notmatch '^169\.254\.' } | Select-Object -First 1
+    $taskIP = $IPAddress
     if ($taskIP) {
         & ssh @taskOptions "ubuntu@$taskIP" 'true' 2>$null
         if ($LASTEXITCODE -eq 0) { break }

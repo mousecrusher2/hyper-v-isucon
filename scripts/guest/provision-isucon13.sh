@@ -43,6 +43,8 @@ while IFS= read -r -d '' file; do
 done < <(git grep -Ilz 'isucon\.dev' -- bench frontend webapp provisioning envcheck)
 
 if test "$role" = application; then
+    # Advertise the fixed address instead of the Internet-facing DHCP address.
+    sed -i 's/ansible_default_ipv4.address/ansible_isucon.ipv4.address/' provisioning/ansible/roles/isucon-user/templates/env.sh
     tls_dir=provisioning/ansible/roles/nginx/files/etc/nginx/tls
     for domain in u t; do
         openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \

@@ -1,4 +1,5 @@
 #requires -Version 7.3
+#requires -RunAsAdministrator
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$')][string]$VMName,
@@ -29,8 +30,8 @@ $taskOptions = @('-i', $IdentityFile, '-o', 'BatchMode=yes', '-o', 'ConnectTimeo
 function Wait-GuestSSH {
     $taskDeadline = (Get-Date).AddMinutes(5)
     do {
-        $taskIP = (Get-VMNetworkAdapter -VM $taskVM).IPAddresses |
-            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' -and $_ -notmatch '^169\.254\.' } | Select-Object -First 1
+        $taskIP = (Get-VMNetworkAdapter -VM $taskVM -Name isucon -ErrorAction Stop).IPAddresses |
+            Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' } | Select-Object -First 1
         if ($taskIP) {
             & ssh @taskOptions "ubuntu@$taskIP" 'true' 2>$null
             if ($LASTEXITCODE -eq 0) { return $taskIP }
@@ -64,16 +65,4 @@ $taskMaximumIOPS = if ($Role -eq 'application') { 32000 } else { 0 }
 Get-VMHardDiskDrive -VM $taskVM | Set-VMHardDiskDrive -MaximumIOPS $taskMaximumIOPS
 Start-VM -VM $taskVM
 $taskFinalIP = Wait-GuestSSH
-if ($Role -eq 'application' -and $taskFinalIP -ne $taskIP) {
-    $taskUpdateIP = @'
-set -eu
-sudo -n systemctl start mysql pdns
-sudo -n sed -i 's/^ISUCON13_POWERDNS_SUBDOMAIN_ADDRESS=.*/ISUCON13_POWERDNS_SUBDOMAIN_ADDRESS="@IP@"/' /home/isucon/env.sh
-sudo -n bash /home/isucon/webapp/pdns/init_zone.sh
-sudo -n systemctl restart pdns isupipe-go
-'@
-    & ssh @taskOptions "ubuntu@$taskFinalIP" ($taskUpdateIP.Replace('@IP@', $taskFinalIP).Replace("`r`n", "`n")) 2>&1 |
-        Tee-Object -FilePath $taskLog -Append
-    if ($LASTEXITCODE -ne 0) { throw '再起動後のIPアドレスの設定に失敗しました。' }
-}
 Write-Host "構築後の設定を適用しました: $VMName ($ProcessorCount vCPU, MaximumIOPS=$taskMaximumIOPS, IPv4=$taskFinalIP)"

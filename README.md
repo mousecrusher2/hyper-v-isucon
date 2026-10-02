@@ -1,6 +1,6 @@
 # Hyper-V ISUCON13 検証環境
 
-Hyper-V 上に ISUCON13 の競技環境（アプリ用 VM 3 台、ベンチマーク用 VM 1 台）を自動構築する PowerShell スクリプトです。  
+Hyper-V 上に ISUCON13 の競技環境（アプリ用 VM 3 台、ベンチマーク用 VM 1 台）を自動構築する PowerShell スクリプトです。
 Ubuntu Server 22.04 の公式 ISO から無人インストールを行い、公式 Ansible を適用してローカル検証環境をセットアップします。
 
 - **対象ドメイン**: `*.u.isucon.test` / `*.t.isucon.test`
@@ -25,7 +25,7 @@ Ubuntu Server 22.04 の公式 ISO から無人インストールを行い、公�
 | 項目 | アプリ用 VM (`app01`〜`app03`) | ベンチマーク用 VM (`bench`) |
 | :--- | :--- | :--- |
 | **台数** | 3 台 | 1 台 |
-| **VM 名** | `isucon13-app01`<br>`isucon13-app02`<br>`isucon13-app03` | `isucon13-bench` |
+| **VM 名** | `isucon13-app01`  `isucon13-app02`  `isucon13-app03` | `isucon13-bench` |
 | **固定 IP** | `192.168.13.2`〜`.4` (/24) | `192.168.13.5` (/24) |
 | **vCPU** | 各 2 vCPU | 8 vCPU |
 | **メモリ** | 動的（最小 512 MiB / 最大 4 GiB） | 動的（最小 512 MiB / 最大 8 GiB） |
@@ -71,7 +71,7 @@ $outputPath = 'D:\isucon13'
 
 ## VM への SSH 接続
 
-構築時に `$outputPath\ssh` 配下へ共通の SSH 秘密鍵（`id_ed25519`）が生成されます。  
+構築時に `$outputPath\ssh` 配下へ共通の SSH 秘密鍵（`id_ed25519`）が生成されます。
 PowerShell から以下のスクリプトで接続できます。
 
 ```powershell
@@ -97,14 +97,17 @@ ssh -i (Join-Path $outputPath 'ssh\id_ed25519') `
 ## 動作確認（Web アプリ）
 
 ### 1. hosts ファイルの登録
+
 Windows ホストのブラウザからアクセスするために、管理者権限でメモ帳等を開き、`C:\Windows\System32\drivers\etc\hosts` にアプリ用 VM の IP アドレスとドメインを追加します。
 
 ```text
 192.168.13.2 pipe.u.isucon.test
 ```
+
 ※ アドレス帯を変更した場合は、該当 VM の固定 IP を指定してください。
 
 ### 2. ブラウザからのアクセス
+
 ブラウザで以下の URL を開きます。
 
 - **URL**: `https://pipe.u.isucon.test/`
@@ -138,24 +141,29 @@ cd /home/ubuntu/isucon13/bench
 ## トラブルシューティング
 
 ### Ansible プロビジョニングに失敗した場合の再実行
+
 Ubuntu のインストール完了後に Ansible プロビジョニングで失敗した場合は、対象 VM を起動した状態で以下のスクリプトを実行することで、プロビジョニングのみを再実行できます。
 
 **アプリ用 VM の場合:**
+
 ```powershell
 $outputPath = 'D:\isucon13'
 $vmName = 'isucon13-app01'
 .\scripts\Invoke-Isucon13Ansible.ps1 -VMName $vmName -OutputPath $outputPath
 ```
+
 ※ アプリ用 VM で再実行すると、DB および TLS 証明書が初期化されます。
 
 **ベンチマーク用 VM の場合:**
+
 ```powershell
 $outputPath = 'D:\isucon13'
 .\scripts\Invoke-Isucon13Ansible.ps1 -VMName 'isucon13-bench' -OutputPath $outputPath -Role benchmarker
 ```
 
 ### ネットワークの重複エラーが出る場合
-「指定したアドレス帯が既存のネットワークと重複しています」というエラーが表示された場合は、ホストの既存ネットワークや WinNAT と競合しています。  
+
+「指定したアドレス帯が既存のネットワークと重複しています」というエラーが表示された場合は、ホストの既存ネットワークや WinNAT と競合しています。
 `-NetworkPrefix` オプションで重複しない別のアドレス帯（例: `-NetworkPrefix '192.168.213.0/24'`）を指定して再実行してください。
 
 ---

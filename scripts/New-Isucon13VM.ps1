@@ -18,6 +18,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$PSNativeCommandArgumentPassing = 'Standard'
+$PSNativeCommandUseErrorActionPreference = $false
+. "$PSScriptRoot\IsoContainer.ps1"
 $taskOutputRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $taskMachines = @(
     foreach ($taskVMName in $ApplicationName) {
@@ -44,9 +47,12 @@ if (-not (Test-Path -LiteralPath $taskKey)) {
 }
 
 $taskJobs = @()
+$taskIsoContainer = $null
 try {
+    $taskIsoLog = Join-Path $taskOutputRoot "logs\iso-$([IO.Path]::GetFileNameWithoutExtension($taskInstallIso)).log"
+    $taskIsoContainer = Start-IsoContainer -OutputPath (Join-Path $taskOutputRoot 'vm') -SourceIsoPath $taskIso -LogPath $taskIsoLog
     & "$PSScriptRoot\New-AutoinstallIso.ps1" -SourceIsoPath $taskIso -IsoPath $taskInstallIso `
-        -LogPath (Join-Path $taskOutputRoot "logs\iso-$([IO.Path]::GetFileNameWithoutExtension($taskInstallIso)).log")
+        -LogPath $taskIsoLog -IsoContainer $taskIsoContainer
     $taskNetwork = & "$PSScriptRoot\Initialize-IsuconNetwork.ps1" -SwitchName $InternalSwitchName -NetworkPrefix $NetworkPrefix
     for ($taskIndex = 0; $taskIndex -lt $taskMachines.Count; $taskIndex++) {
         $taskMachines[$taskIndex] | Add-Member -NotePropertyName IPAddress -NotePropertyValue $taskNetwork.VMAddresses[$taskIndex]
@@ -54,25 +60,29 @@ try {
     }
     foreach ($taskMachine in $taskMachines) {
         $taskJobs += Start-Job -Name $taskMachine.Name -ScriptBlock {
-            param($Scripts, $Machine, $Iso, $Switch, $InternalSwitch, $PrefixLength, $Timeout, $Output)
+            param($Scripts, $Machine, $Iso, $Switch, $InternalSwitch, $PrefixLength, $Timeout, $Output, $IsoContainer)
             $ErrorActionPreference = 'Stop'
             Set-StrictMode -Version Latest
             Write-Host "VMを構築します: $($Machine.Name) ($($Machine.Role))"
             & "$Scripts\New-UbuntuVM.ps1" -Name $Machine.Name -IsoPath $Iso -AutoinstallIso -OutputPath $Output -SwitchName $Switch `
                 -InternalSwitchName $InternalSwitch -IPAddress $Machine.IPAddress -PrefixLength $PrefixLength `
-                -MemoryMaximumBytes $Machine.MemoryMaximum -ProcessorCount 4 -TimeoutMinutes $Timeout | Out-Null
+                -MemoryMaximumBytes $Machine.MemoryMaximum -ProcessorCount 4 -TimeoutMinutes $Timeout -IsoContainer $IsoContainer | Out-Null
             & "$Scripts\Invoke-Isucon13Ansible.ps1" -VMName $Machine.Name -OutputPath $Output -Role $Machine.Role -ProcessorCount $Machine.CPUs
             Write-Host "ISUCON13の構築が完了しました: $($Machine.Name)"
-        } -ArgumentList $PSScriptRoot, $taskMachine, $taskInstallIso, $SwitchName, $InternalSwitchName, $taskNetwork.PrefixLength, $TimeoutMinutes, $taskOutputRoot
+        } -ArgumentList $PSScriptRoot, $taskMachine, $taskInstallIso, $SwitchName, $InternalSwitchName, $taskNetwork.PrefixLength, $TimeoutMinutes, $taskOutputRoot, $taskIsoContainer
     }
     $taskJobs | Receive-Job -Wait -ErrorAction Continue
     $taskFailed = @($taskJobs | Where-Object State -ne 'Completed')
     if ($taskFailed.Count) { throw "構築に失敗したVM: $($taskFailed.Name -join ', ')。VMとディスクを残しています。" }
 } finally {
-    $taskJobs | Where-Object State -in 'NotStarted','Running' | Stop-Job
-    $taskJobs | Remove-Job
-    if ((Test-Path -LiteralPath $taskInstallIso) -and
-        -not @(Get-VM | Get-VMDvdDrive | Where-Object Path -eq $taskInstallIso).Count) {
-        Remove-Item -LiteralPath $taskInstallIso
+    try {
+        $taskJobs | Where-Object State -in 'NotStarted','Running' | Stop-Job
+        $taskJobs | Remove-Job
+        if ((Test-Path -LiteralPath $taskInstallIso) -and
+            -not @(Get-VM | Get-VMDvdDrive | Where-Object Path -eq $taskInstallIso).Count) {
+            Remove-Item -LiteralPath $taskInstallIso
+        }
+    } finally {
+        if ($taskIsoContainer) { Stop-IsoContainer -Container $taskIsoContainer }
     }
 }

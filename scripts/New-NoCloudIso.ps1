@@ -2,46 +2,24 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$SourcePath,
-    [Parameter(Mandatory)][string]$IsoPath
+    [Parameter(Mandatory)][string]$IsoPath,
+    [Parameter(Mandatory)][psobject]$IsoContainer
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$PSNativeCommandArgumentPassing = 'Standard'
+$PSNativeCommandUseErrorActionPreference = $false
+. "$PSScriptRoot\IsoContainer.ps1"
 $taskSource = (Resolve-Path -LiteralPath $SourcePath).Path
-$taskOutput = [IO.Path]::GetFullPath($IsoPath)
+$taskOutput = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IsoPath)
 if (Test-Path -LiteralPath $taskOutput) { throw "$taskOutput は既に存在します。" }
-
-# IMAPI creates the filesystem; this bridge saves its COM stream to a file.
-if (-not ('NoCloudIsoStream' -as [type])) {
-    Add-Type -TypeDefinition @'
-using System.IO;
-using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
-public static class NoCloudIsoStream {
-    public static void Save(object source, string path) {
-        var stream = (IStream)source;
-        var buffer = new byte[65536];
-        var countPointer = Marshal.AllocHGlobal(4);
-        try {
-            using (var output = new FileStream(path, FileMode.CreateNew)) {
-                while (true) {
-                    stream.Read(buffer, buffer.Length, countPointer);
-                    int count = Marshal.ReadInt32(countPointer);
-                    if (count == 0) break;
-                    output.Write(buffer, 0, count);
-                }
-            }
-        } finally { Marshal.FreeHGlobal(countPointer); }
-    }
+$taskLinuxSource = Get-IsoContainerPath -Container $IsoContainer -Path $taskSource
+$taskLinuxOutput = Get-IsoContainerPath -Container $IsoContainer -Path $taskOutput
+& wslc.exe exec $IsoContainer.Name xorriso -no_rc -as mkisofs -V cidata -J -r -o $taskLinuxOutput $taskLinuxSource `
+    2>&1 | ForEach-Object { Write-Host $_ }
+if ($LASTEXITCODE -ne 0) {
+    if (Test-Path -LiteralPath $taskOutput) { Remove-Item -LiteralPath $taskOutput }
+    throw 'NoCloud ISOの生成に失敗しました。'
 }
-'@
-}
-$taskImage = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
-try {
-    $taskImage.FileSystemsToCreate = 3 # ISO9660 and Joliet
-    $taskImage.VolumeName = 'cidata'
-    $taskImage.Root.AddTree($taskSource, $false)
-    $taskResult = $taskImage.CreateResultImage()
-    try { [NoCloudIsoStream]::Save($taskResult.ImageStream, $taskOutput) }
-    finally { [Runtime.InteropServices.Marshal]::ReleaseComObject($taskResult) | Out-Null }
-} finally { [Runtime.InteropServices.Marshal]::ReleaseComObject($taskImage) | Out-Null }
+if (-not (Test-Path -LiteralPath $taskOutput -PathType Leaf)) { throw 'NoCloud ISOが生成されませんでした。' }

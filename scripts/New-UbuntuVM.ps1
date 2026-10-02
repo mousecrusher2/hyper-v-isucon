@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)][string]$IsoPath,
     [Parameter(Mandatory)][string]$OutputPath,
     [switch]$AutoinstallIso,
+    [psobject]$IsoContainer,
     [string]$SwitchName = 'Default Switch',
     [string]$InternalSwitchName = 'ISUCON13',
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$IPAddress,
@@ -19,6 +20,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $false
+. "$PSScriptRoot\IsoContainer.ps1"
 $taskRoot = Split-Path -Parent $PSScriptRoot
 $taskOutputRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $taskIso = (Resolve-Path -LiteralPath $IsoPath).Path
@@ -42,41 +44,51 @@ if (-not (Test-Path -LiteralPath $taskKey)) {
 }
 $taskPublicKey = (Get-Content -LiteralPath "$taskKey.pub" -Raw).Trim()
 $taskEncoding = [Text.UTF8Encoding]::new($false)
-if (-not $AutoinstallIso) {
-    $taskSourceIso = $taskIso
-    $taskIso = Join-Path $taskVmDir 'install.iso'
-    & "$PSScriptRoot\New-AutoinstallIso.ps1" -SourceIsoPath $taskSourceIso -IsoPath $taskIso `
-        -LogPath (Join-Path $taskOutputRoot "logs\iso-$Name.log")
-}
+$taskOwnContainer = $null
+try {
+    if (-not $IsoContainer) {
+        $taskOwnContainer = Start-IsoContainer -OutputPath (Join-Path $taskOutputRoot 'vm') -SourceIsoPath $taskIso `
+            -LogPath (Join-Path $taskOutputRoot "logs\iso-$Name.log")
+        $IsoContainer = $taskOwnContainer
+    }
+    if (-not $AutoinstallIso) {
+        $taskSourceIso = $taskIso
+        $taskIso = Join-Path $taskVmDir 'install.iso'
+        & "$PSScriptRoot\New-AutoinstallIso.ps1" -SourceIsoPath $taskSourceIso -IsoPath $taskIso `
+            -LogPath (Join-Path $taskOutputRoot "logs\iso-$Name.log") -IsoContainer $IsoContainer
+    }
 
-New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
-$taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
-$taskUplink = Get-VMNetworkAdapter -VM $taskVM
-Rename-VMNetworkAdapter -VMNetworkAdapter $taskUplink -NewName uplink
-Add-VMNetworkAdapter -VM $taskVM -Name isucon -SwitchName $InternalSwitchName
-Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
-Disable-VMIntegrationService -VM $taskVM -Name VSS
-Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 2GB -StartupBytes 2GB -MaximumBytes $MemoryMaximumBytes
-Disable-VMConsoleSupport -VMName $Name
-# Generate locally administered unicast MACs with 46 random bits.
-foreach ($taskNic in Get-VMNetworkAdapter -VM $taskVM) {
-    do {
-        $taskMacBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(6)
-        $taskMacBytes[0] = ($taskMacBytes[0] -band 0xFC) -bor 0x02
-        $taskMac = [Convert]::ToHexString($taskMacBytes)
-        $taskExistingMacs = @((Get-VM | Get-VMNetworkAdapter).MacAddress) + @((Get-VMNetworkAdapter -ManagementOS).MacAddress)
-    } while ($taskMac -in $taskExistingMacs)
-    Set-VMNetworkAdapter -VMNetworkAdapter $taskNic -StaticMacAddress $taskMac
+    New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
+    $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
+    $taskUplink = Get-VMNetworkAdapter -VM $taskVM
+    Rename-VMNetworkAdapter -VMNetworkAdapter $taskUplink -NewName uplink
+    Add-VMNetworkAdapter -VM $taskVM -Name isucon -SwitchName $InternalSwitchName
+    Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
+    Disable-VMIntegrationService -VM $taskVM -Name VSS
+    Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 2GB -StartupBytes 2GB -MaximumBytes $MemoryMaximumBytes
+    Disable-VMConsoleSupport -VMName $Name
+    # Generate locally administered unicast MACs with 46 random bits.
+    foreach ($taskNic in Get-VMNetworkAdapter -VM $taskVM) {
+        do {
+            $taskMacBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(6)
+            $taskMacBytes[0] = ($taskMacBytes[0] -band 0xFC) -bor 0x02
+            $taskMac = [Convert]::ToHexString($taskMacBytes)
+            $taskExistingMacs = @((Get-VM | Get-VMNetworkAdapter).MacAddress) + @((Get-VMNetworkAdapter -ManagementOS).MacAddress)
+        } while ($taskMac -in $taskExistingMacs)
+        Set-VMNetworkAdapter -VMNetworkAdapter $taskNic -StaticMacAddress $taskMac
+    }
+    $taskUplinkMAC = (Get-VMNetworkAdapter -VM $taskVM -Name uplink).MacAddress.ToLowerInvariant() -replace '(..)(?!$)', '$1:'
+    $taskIsuconMAC = (Get-VMNetworkAdapter -VM $taskVM -Name isucon).MacAddress.ToLowerInvariant() -replace '(..)(?!$)', '$1:'
+    $taskUserData = (Get-Content -LiteralPath (Join-Path $taskRoot 'config\autoinstall.yaml') -Raw).
+        Replace('{{hostname}}', $Name).Replace('{{ssh_public_key}}', ($taskPublicKey | ConvertTo-Json -Compress)).
+        Replace('{{uplink_mac}}', $taskUplinkMAC).Replace('{{isucon_mac}}', $taskIsuconMAC).
+        Replace('{{ip_address}}', $IPAddress).Replace('{{prefix_length}}', [string]$PrefixLength)
+    [IO.File]::WriteAllText("$taskVmDir\seed\user-data", $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
+    [IO.File]::WriteAllText("$taskVmDir\seed\meta-data", "instance-id: iid-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
+    & "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso" -IsoContainer $IsoContainer
+} finally {
+    if ($taskOwnContainer) { Stop-IsoContainer -Container $taskOwnContainer }
 }
-$taskUplinkMAC = (Get-VMNetworkAdapter -VM $taskVM -Name uplink).MacAddress.ToLowerInvariant() -replace '(..)(?!$)', '$1:'
-$taskIsuconMAC = (Get-VMNetworkAdapter -VM $taskVM -Name isucon).MacAddress.ToLowerInvariant() -replace '(..)(?!$)', '$1:'
-$taskUserData = (Get-Content -LiteralPath (Join-Path $taskRoot 'config\autoinstall.yaml') -Raw).
-    Replace('{{hostname}}', $Name).Replace('{{ssh_public_key}}', ($taskPublicKey | ConvertTo-Json -Compress)).
-    Replace('{{uplink_mac}}', $taskUplinkMAC).Replace('{{isucon_mac}}', $taskIsuconMAC).
-    Replace('{{ip_address}}', $IPAddress).Replace('{{prefix_length}}', [string]$PrefixLength)
-[IO.File]::WriteAllText("$taskVmDir\seed\user-data", $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
-[IO.File]::WriteAllText("$taskVmDir\seed\meta-data", "instance-id: iid-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
-& "$PSScriptRoot\New-NoCloudIso.ps1" -SourcePath "$taskVmDir\seed" -IsoPath "$taskVmDir\seed.iso"
 $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
 Set-VMFirmware -VM $taskVM -EnableSecureBoot Off -FirstBootDevice $taskDVD

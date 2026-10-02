@@ -1,10 +1,6 @@
 #!/bin/sh
 set -eu
 
-apt-get update
-apt-get upgrade -y
-apt-get install -y --no-install-recommends xorriso
-
 task_output=$1
 task_work=$(mktemp -d)
 trap 'rm -rf "$task_work"' EXIT

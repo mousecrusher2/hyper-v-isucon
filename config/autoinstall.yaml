@@ -6,8 +6,6 @@ autoinstall:
   storage:
     layout:
       name: direct
-    swap:
-      size: 0
   network:
     version: 2
     renderer: networkd

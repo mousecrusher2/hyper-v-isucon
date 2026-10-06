@@ -9,9 +9,9 @@ param(
     [string]$SwitchName = 'Default Switch',
     [string]$InternalSwitchName = 'ISUCON13',
     [string]$NetworkPrefix = '192.168.13.0/24',
-    [ValidateRange(2GB, [long]::MaxValue)][long]$MemoryMaximumBytes = 4GB,
+    [Alias('MemoryMaximumBytes')][ValidateRange(2GB, [long]::MaxValue)][long]$MemoryBytes = 4GB,
     [ValidateRange(1,1024)][int]$ProcessorCount = 2,
-    [ValidateRange(2GB, [long]::MaxValue)][long]$BenchmarkerMemoryMaximumBytes = 8GB,
+    [Alias('BenchmarkerMemoryMaximumBytes')][ValidateRange(2GB, [long]::MaxValue)][long]$BenchmarkerMemoryBytes = 4GB,
     [ValidateRange(1,1024)][int]$BenchmarkerProcessorCount = 8,
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
 )
@@ -24,9 +24,9 @@ $PSNativeCommandUseErrorActionPreference = $false
 $taskOutputRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $taskMachines = @(
     foreach ($taskVMName in $ApplicationName) {
-        [pscustomobject]@{ Name = $taskVMName; Role = 'application'; MemoryMaximum = $MemoryMaximumBytes; CPUs = $ProcessorCount }
+        [pscustomobject]@{ Name = $taskVMName; Role = 'application'; Memory = $MemoryBytes; CPUs = $ProcessorCount }
     }
-    [pscustomobject]@{ Name = $BenchmarkerName; Role = 'benchmarker'; MemoryMaximum = $BenchmarkerMemoryMaximumBytes; CPUs = $BenchmarkerProcessorCount }
+    [pscustomobject]@{ Name = $BenchmarkerName; Role = 'benchmarker'; Memory = $BenchmarkerMemoryBytes; CPUs = $BenchmarkerProcessorCount }
 )
 if ($taskMachines.Count -ne @($taskMachines.Name | Sort-Object -Unique).Count) { throw 'VM名が重複しています。' }
 foreach ($taskVMName in $taskMachines.Name) {
@@ -66,7 +66,7 @@ try {
             Write-Host "VMを構築します: $($Machine.Name) ($($Machine.Role))"
             & "$Scripts\New-UbuntuVM.ps1" -Name $Machine.Name -IsoPath $Iso -AutoinstallIso -OutputPath $Output -SwitchName $Switch `
                 -InternalSwitchName $InternalSwitch -IPAddress $Machine.IPAddress -PrefixLength $PrefixLength `
-                -MemoryMaximumBytes $Machine.MemoryMaximum -ProcessorCount 4 -TimeoutMinutes $Timeout -IsoContainer $IsoContainer | Out-Null
+                -MemoryBytes $Machine.Memory -ProcessorCount 4 -TimeoutMinutes $Timeout -IsoContainer $IsoContainer | Out-Null
             & "$Scripts\Invoke-Isucon13Ansible.ps1" -VMName $Machine.Name -OutputPath $Output -Role $Machine.Role -ProcessorCount $Machine.CPUs
             Write-Host "ISUCON13の構築が完了しました: $($Machine.Name)"
         } -ArgumentList $PSScriptRoot, $taskMachine, $taskInstallIso, $SwitchName, $InternalSwitchName, $taskNetwork.PrefixLength, $TimeoutMinutes, $taskOutputRoot, $taskIsoContainer

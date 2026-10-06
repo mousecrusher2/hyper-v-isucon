@@ -5,8 +5,10 @@
 ## 現行構成
 
 `New-Isucon13VM.ps1`で、アプリ用3台・ベンチ用1台をISOから並列に無人インストールし、
-各VMに役割に応じた公式Ansibleを実行する。構築中は全VMで4 vCPU・最小メモリ2 GiB・IOPS制限なし。
-各VMのAnsible成功後に、最小メモリを512 MiBへ戻し、アプリ用は2 vCPU・最大32000 IOPS、ベンチ用は8 vCPU・IOPS制限なしに設定する。
+各VMに役割に応じた公式Ansibleを実行する。全VMで固定メモリ4 GiB・swapなしとし、構築中は4 vCPU・IOPS制限なし。
+各VMのAnsible成功後に、アプリ用は2 vCPU・最大16000 IOPS、ベンチ用は8 vCPU・IOPS制限なしに設定する。
+CPUは`HwThreadCountPerCore=2`で1コアあたり2スレッドのSMT構成に設定する。
+ベンチ用VMのメモリは本番の8 GiBから4 GiBへ変更している。必要に応じて利用者自身で8 GiBへ変更できる。
 Internal Switch側の固定IPをSSH・アプリ・ベンチの通信とDNS登録に使用する。
 インターネット接続は別NICのDHCPを使用する。
 構築スクリプトはWindowsの管理者権限を必須とする。
@@ -14,6 +16,31 @@ Windows側の仮想NICにも固定IPを設定し、同じアドレス帯にVMの
 固定IP用のInternal Switchは構築時に必ず新規作成し、同名の既存スイッチは再利用せずエラーにする。
 既定値は`192.168.13.0/24`、Windows側は`.1`、アプリ用VMは`.2`〜`.4`、ベンチ用VMは`.5`。
 アドレス帯は`NetworkPrefix`で変更できる。既存IP・経路・WinNATと重複したら設定前にエラーにする。
+
+### IOPS上限とSMT構成（2026-10-07）
+
+アプリ用VMのIOPS上限を、保守的な32000から`125 MiB/s ÷ 8 KiB = 16000`へ変更した。
+Ansible完了後の停止中に`Set-VMProcessor -HwThreadCountPerCore 2`でSMT構成を設定し、CPU数とIOPS上限を適用して再起動する。
+構築中は4 vCPU・IOPS制限なし、ベンチ用VMのIOPSは完了後も制限なし。
+
+このホストはIntel Core i7-13700K（16コア・24論理プロセッサ）で、Hyper-V起動イベントのスケジューラー種別は0x4（Root）だった。
+`HwThreadCountPerCore`はゲストへ公開するSMTトポロジーを指定する設定で、Rootスケジューラー上で物理コアへの固定や本番と同じCPU性能を保証するものとしては扱わない。
+詳細は[Microsoftの説明](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/manage/manage-hyper-v-scheduler-types)を参照。
+
+ディスクなしの検証用Generation 2 VMを停止状態で作成し、vCPU数2・3・8と`HwThreadCountPerCore=2`の組み合わせを設定でき、読み取り結果が一致することを確認した。
+検証用VMは起動せず、検証後にVMと作業フォルダーを削除した。既存VMの一覧は開始前と一致した。
+構文チェックと3ケースの資源設定の模擬テストも通り、Ansible完了後にSMT設定を行うこと、アプリ用16000・ベンチ用0のIOPS上限、固定メモリの維持を確認した。
+記録は`.local/checks/smt-20261007/processor-setting.json`・`resources.log`。実機での再構築や負荷試験は行っていない。
+
+### 固定メモリとswapなしへの変更（2026-10-05）
+
+VM作成時から指定した容量の固定メモリを割り当て、動的メモリを無効化するように変更した。
+既定値はアプリ・ベンチとも4 GiB。Ansible実行前後の最小メモリ変更を削除し、手動で変更した容量も維持する。
+autoinstallの`storage.swap.size: 0`でswap作成を無効にし、初回起動確認にもswapが有効になっていないことの検査を追加した。
+
+構文チェックと資源設定の模擬テストを実行した。既定値・ベンチ8 GiB指定・旧引数名による容量指定の3ケースで、
+各4台への容量の割り当て、VM作成からAnsible完了後まで固定メモリが維持されること、CPUとIOPSの変更順序を確認した。
+記録は`.local/checks/memory-20261005/resources.log`。実機での再構築は行っていない。
 
 ### xorrisoへの統一（2026-10-02）
 
@@ -519,7 +546,7 @@ gp3標準の125 MiB/sと、[EBSによる小さなI/Oの結合](https://docs.aws.
 
 ### 4KnとIOPS上限（2026-10-01）
 
-現行構成では全VMのVHDXを4Kn（論理・物理セクター各4096 B）に変更し、
+2026-10-01の構成では全VMのVHDXを4Kn（論理・物理セクター各4096 B）に変更し、
 アプリ用の上限を`MaximumIOPS=32000`、ベンチ用を0とした。
 VHDXの作成時に`LogicalSectorSizeBytes`と`PhysicalSectorSizeBytes`を両方4096に指定する。
 

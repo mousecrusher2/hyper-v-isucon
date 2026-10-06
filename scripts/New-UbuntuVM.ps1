@@ -11,7 +11,7 @@ param(
     [string]$InternalSwitchName = 'ISUCON13',
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$IPAddress,
     [Parameter(Mandatory)][ValidateRange(1,29)][int]$PrefixLength,
-    [ValidateRange(2GB, [long]::MaxValue)][long]$MemoryMaximumBytes = 4GB,
+    [Alias('MemoryMaximumBytes')][ValidateRange(2GB, [long]::MaxValue)][long]$MemoryBytes = 4GB,
     [int]$ProcessorCount = 4,
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
 )
@@ -59,13 +59,13 @@ try {
     }
 
     New-VHD -Path $taskDisk -Dynamic -SizeBytes 40GB -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
-    $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
+    $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes $MemoryBytes -VHDPath $taskDisk -SwitchName $SwitchName -Path $taskVmDir
     $taskUplink = Get-VMNetworkAdapter -VM $taskVM
     Rename-VMNetworkAdapter -VMNetworkAdapter $taskUplink -NewName uplink
     Add-VMNetworkAdapter -VM $taskVM -Name isucon -SwitchName $InternalSwitchName
     Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
     Disable-VMIntegrationService -VM $taskVM -Name VSS
-    Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $true -MinimumBytes 2GB -StartupBytes 2GB -MaximumBytes $MemoryMaximumBytes
+    Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $false
     Disable-VMConsoleSupport -VMName $Name
     # Generate locally administered unicast MACs with 46 random bits.
     foreach ($taskNic in Get-VMNetworkAdapter -VM $taskVM) {
@@ -91,7 +91,7 @@ try {
 }
 $taskDVD = Add-VMDvdDrive -VM $taskVM -Path $taskIso -Passthru
 Add-VMDvdDrive -VM $taskVM -Path "$taskVmDir\seed.iso"
-Set-VMFirmware -VM $taskVM -EnableSecureBoot Off -FirstBootDevice $taskDVD
+Set-VMFirmware -VM $taskVM -EnableSecureBoot On -SecureBootTemplate MicrosoftUEFICertificateAuthority -FirstBootDevice $taskDVD
 Start-VM -VM $taskVM
 
 $taskDeadline = (Get-Date).AddMinutes($TimeoutMinutes)
@@ -100,9 +100,7 @@ while ((Get-VM -Name $Name).State -ne 'Off') {
     if ((Get-Date) -ge $taskDeadline) { throw 'autoinstallがタイムアウトしました。VMとディスクを残しています。' }
     Start-Sleep -Seconds 3
 }
-foreach ($taskDVD in Get-VMDvdDrive -VMName $Name) {
-    Set-VMDvdDrive -VMName $Name -ControllerNumber $taskDVD.ControllerNumber -ControllerLocation $taskDVD.ControllerLocation -Path $null
-}
+Get-VMDvdDrive -VMName $Name | Remove-VMDvdDrive
 if (-not $AutoinstallIso) { Remove-Item -LiteralPath $taskIso }
 Set-VMFirmware -VMName $Name -FirstBootDevice (Get-VMHardDiskDrive -VMName $Name)
 Start-VM -Name $Name
@@ -128,6 +126,7 @@ sudo -n cloud-init status --wait --long
 . /etc/os-release
 test "$ID" = ubuntu && test "$VERSION_ID" = 22.04
 test -d /sys/firmware/efi
+test -z "$(swapon --show --noheadings)"
 systemctl is-active --quiet ssh
 '@
 & ssh @taskOptions "ubuntu@$taskIP" ($taskChecks.Replace("`r`n", "`n")) | ForEach-Object { Write-Host $_ }

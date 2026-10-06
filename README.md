@@ -27,16 +27,21 @@ Ubuntu Server 22.04 の公式 ISO から無人インストールを行い、公�
 | **台数** | 3 台 | 1 台 |
 | **VM 名** | `isucon13-app01`  `isucon13-app02`  `isucon13-app03` | `isucon13-bench` |
 | **固定 IP** | `192.168.13.2`〜`.4` (/24) | `192.168.13.5` (/24) |
-| **vCPU** | 各 2 vCPU | 8 vCPU |
-| **メモリ** | 動的（最小 512 MiB / 最大 4 GiB） | 動的（最小 512 MiB / 最大 8 GiB） |
+| **vCPU** | 各 2 vCPU（1 コア × 2 スレッド） | 8 vCPU（4 コア × 2 スレッド） |
+| **メモリ** | 固定 4 GiB | 固定 4 GiB |
+| **swap** | 無効 | 無効 |
 | **ディスク** | 各 40 GiB (VHDX) | 40 GiB (VHDX) |
-| **IOPS 制限** | 最大 32,000 IOPS (AWS EBS gp3 相当) | 制限なし |
+| **IOPS 制限** | 最大 16,000 IOPS（8 KiB 換算） | 制限なし |
 | **ログインユーザー** | `ubuntu`（SSH 公開鍵認証 / `sudo` パスワード不要） | 同左 |
 
 > [!NOTE]
-> 構築中は一時的に全 VM を 4 vCPU / 最小 2 GiB / IOPS 制限なしで起動してプロビジョニングを行い、Ansible 完了後に上記スペックへ自動設定されます。
+> 構築中は一時的に全 VM を 4 vCPU / IOPS 制限なしで起動してプロビジョニングを行い、Ansible 完了後に上記の CPU 数と IOPS 制限へ自動設定されます。
 
-本番環境の条件に近づける場合は、利用者自身でswapと動的メモリの両方を無効化してください。
+アプリ用 VM の IOPS 上限は、[gp3 の標準スループット](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html) 125 MiB/s を 8 KiB で割った 16,000 に設定しています。
+
+CPU は `HwThreadCountPerCore=2` で 1 コアあたり 2 スレッドの SMT 構成に設定します。Windows 10 / 11 の既定の Root スケジューラーでは Windows 側がスケジューリングを行うため、この指定だけで物理コアへの固定や本番と同じ CPU 性能は保証できません。[Microsoft の説明](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/manage/manage-hyper-v-scheduler-types)
+
+ベンチマーク用 VM のメモリは、本番の 8 GiB から 4 GiB に減らしています。必要に応じて、利用者自身で VM を停止し、Hyper-V マネージャーでメモリを 8 GiB に変更できます。
 
 ---
 

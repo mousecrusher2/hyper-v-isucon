@@ -47,7 +47,11 @@ if test "$role" = application; then
     sed -i 's/ansible_default_ipv4.address/ansible_isucon.ipv4.address/' provisioning/ansible/roles/isucon-user/templates/env.sh
     tls_dir=provisioning/ansible/roles/nginx/files/etc/nginx/tls
     for domain in u t; do
-        openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+        key_options=(-newkey rsa:2048)
+        if test "$domain" = u; then
+            key_options=(-newkey ec -pkeyopt ec_paramgen_curve:prime256v1)
+        fi
+        openssl req -x509 "${key_options[@]}" -nodes -sha256 -days 3650 \
             -subj "/CN=*.$domain.isucon.test" \
             -addext "subjectAltName=DNS:*.$domain.isucon.test" \
             -keyout "$tls_dir/_.$domain.isucon.test.key" \

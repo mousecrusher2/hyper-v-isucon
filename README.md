@@ -4,7 +4,7 @@ Hyper-V 上に ISUCON13 の競技環境（アプリ用 VM 3 台、ベンチマ�
 Ubuntu Server 22.04 の公式 ISO から無人インストールを行い、公式 Ansible を適用してローカル検証環境をセットアップします。
 
 - **対象ドメイン**: `*.u.isucon.test` / `*.t.isucon.test`
-- **TLS 証明書**: 自己署名証明書（自動生成）
+- **TLS 証明書**: 自己署名証明書（u は ECDSA P-256、t は RSA 2048 ビットで自動生成）
 
 ---
 

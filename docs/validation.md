@@ -17,6 +17,19 @@ Windows側の仮想NICにも固定IPを設定し、同じアドレス帯にVMの
 既定値は`192.168.13.0/24`、Windows側は`.1`、アプリ用VMは`.2`〜`.4`、ベンチ用VMは`.5`。
 アドレス帯は`NetworkPrefix`で変更できる。既存IP・経路・WinNATと重複したら設定前にエラーにする。
 
+### TLSサーバー鍵の方式を本番へ合わせる変更（2026-10-08）
+
+公式リポジトリの証明書を解析し、`*.u.isucon.dev`の公開鍵はECDSA P-256、`*.t.isucon.dev`はRSA 2048ビットであることを確認した。
+通常のAPI通信と攻撃シナリオのアクセス先はu側で、tの証明書はNginxの既定仮想ホストで使用する。
+`provision-isucon13.sh`で、u側のサーバー鍵を`ec_paramgen_curve:prime256v1`で生成するように変更した。
+t側はRSA 2048ビットで生成する。ドメインは`.test`、証明書は自己署名とする。
+本番証明書自体のCA署名は両方ともRSA-SHA256だが、u側の自己署名には自身のECDSA鍵を使うためECDSA-SHA256になる。今回合わせたのはTLSで使うサーバー鍵の方式と曲線。
+
+Git付属Bashでスクリプトの構文を確認し、実際の証明書生成ループをOpenSSL 3.5.8で実行した。
+生成したuの公開鍵と曲線、tの鍵長、SAN、鍵と証明書の公開鍵の一致、自己署名とホスト名の検証、issuerファイルとの一致を確認した。
+検証用の秘密鍵・証明書・作業フォルダーは削除した。既存VMの証明書は変更せず、実機での再構築やベンチマークは行っていない。
+記録は`.local/checks/certificates-20261008/`の`official-u.crt`・`official-t.crt`・`generated-certificates.json`・`generation.log`。
+
 ### IOPS上限とSMT構成（2026-10-07）
 
 アプリ用VMのIOPS上限を、保守的な32000から`125 MiB/s ÷ 8 KiB = 16000`へ変更した。

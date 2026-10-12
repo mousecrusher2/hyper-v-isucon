@@ -13,7 +13,7 @@ function Start-IsoContainer {
     New-Item -ItemType Directory -Path $taskDirectory,(Split-Path -Parent $taskLog) -Force | Out-Null
     $taskContainer = [pscustomobject]@{ Name = "hyper-isucon-iso-$([guid]::NewGuid())"; OutputPath = $taskDirectory }
     $taskArguments = @('run', '--detach', '--name', $taskContainer.Name, '--env', 'DEBIAN_FRONTEND=noninteractive',
-        '--volume', "${taskDirectory}:/output", '--volume', "${PSScriptRoot}:/tool:ro")
+        '--volume', "${taskDirectory}:/output", '--volume', "$(Split-Path -Parent $PSScriptRoot):/tool:ro")
     if ($SourceIsoPath) {
         $taskSource = (Resolve-Path -LiteralPath $SourceIsoPath -ErrorAction Stop).Path
         $taskArguments += @('--volume', "${taskSource}:/input/source.iso:ro")

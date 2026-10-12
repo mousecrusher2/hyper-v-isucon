@@ -19,7 +19,7 @@ autoinstall:
         dhcp4: true
       isucon:
         match:
-          macaddress: "{{isucon_mac}}"
+          macaddress: "{{internal_mac}}"
         set-name: isucon
         dhcp4: false
         dhcp6: false

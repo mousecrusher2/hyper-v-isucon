@@ -1,0 +1,42 @@
+#cloud-config
+autoinstall:
+  version: 1
+  source:
+    id: ubuntu-server-minimal
+  storage:
+    layout:
+      name: direct
+    swap:
+      size: 0
+  network:
+    version: 2
+    renderer: networkd
+    ethernets:
+      uplink:
+        match:
+          macaddress: "{{uplink_mac}}"
+        set-name: uplink
+        dhcp4: true
+      isucon:
+        match:
+          macaddress: "{{internal_mac}}"
+        set-name: isucon
+        dhcp4: false
+        dhcp6: false
+        accept-ra: false
+        addresses: [{{ip_address}}/{{prefix_length}}]
+  packages:
+    - linux-cloud-tools-virtual
+  ssh:
+    install-server: true
+    allow-pw: false
+  user-data:
+    hostname: {{hostname}}
+    users: [default]
+    ssh_authorized_keys:
+      - {{ssh_public_key}}
+    write_files:
+      - path: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+        content: |
+          network: {config: disabled}
+  shutdown: poweroff

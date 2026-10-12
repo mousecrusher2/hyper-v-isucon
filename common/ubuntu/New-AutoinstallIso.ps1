@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $false
-. "$PSScriptRoot\IsoContainer.ps1"
+. "$PSScriptRoot\..\iso\IsoContainer.ps1"
 $taskSource = (Resolve-Path -LiteralPath $SourceIsoPath).Path
 $taskIso = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IsoPath)
 $taskLog = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)
@@ -27,7 +27,7 @@ try {
         $IsoContainer = $taskOwnContainer
     }
     $taskLinuxIso = Get-IsoContainerPath -Container $IsoContainer -Path $taskIso
-    & wslc.exe exec $IsoContainer.Name sh /tool/prepare-autoinstall-iso.sh $taskLinuxIso `
+    & wslc.exe exec $IsoContainer.Name sh /tool/ubuntu/prepare-autoinstall-iso.sh $taskLinuxIso `
         2>&1 | Tee-Object -FilePath $taskLog -Append | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         if (Test-Path -LiteralPath $taskIso) { Remove-Item -LiteralPath $taskIso }

@@ -2,8 +2,9 @@
 #requires -RunAsAdministrator
 [CmdletBinding()]
 param(
-    [string]$SwitchName = 'ISUCON13',
-    [string]$NetworkPrefix = '192.168.13.0/24'
+    [Parameter(Mandatory)][string]$SwitchName,
+    [Parameter(Mandatory)][string]$NetworkPrefix,
+    [Parameter(Mandatory)][ValidateRange(1,65533)][int]$AddressCount
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,14 +25,14 @@ function ConvertTo-IPv4([long]$Number) {
 $taskRange = Get-IPv4Range $NetworkPrefix
 $taskAllowed = @('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16') |
     ForEach-Object { Get-IPv4Range $_ } | Where-Object { $taskRange.Start -ge $_.Start -and $taskRange.End -le $_.End }
-if (-not $taskAllowed -or $taskRange.PrefixLength -gt 29 -or $taskRange.Number -ne $taskRange.Start) {
-    throw 'NetworkPrefixにはVM4台とWindows側のIPを収容できる、プライベートIPv4のネットワークアドレス（/29以下）を指定してください。'
+if (-not $taskAllowed -or ($taskRange.End - $taskRange.Start + 1) -lt ($AddressCount + 3) -or $taskRange.Number -ne $taskRange.Start) {
+    throw "NetworkPrefixにはVM $AddressCount 台とWindows側のIPを収容できる、プライベートIPv4のネットワークアドレスを指定してください。"
 }
 $taskHostIP = ConvertTo-IPv4 ($taskRange.Start + 1)
 $taskHostPrefix = "$taskHostIP/$($taskRange.PrefixLength)"
-$taskVMIPs = @(2..5 | ForEach-Object { ConvertTo-IPv4 ($taskRange.Start + $_) })
+$taskVMIPs = @(2..($AddressCount + 1) | ForEach-Object { ConvertTo-IPv4 ($taskRange.Start + $_) })
 if (Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue) {
-    throw "スイッチ '$SwitchName' は既に存在します。InternalSwitchNameには新規作成するスイッチの名前を指定してください。"
+    throw "スイッチ '$SwitchName' は既に存在します。SwitchNameには新規作成するスイッチの名前を指定してください。"
 }
 $taskAddresses = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop)
 $taskHint = '重複しないアドレス帯をNetworkPrefixで指定してください。'

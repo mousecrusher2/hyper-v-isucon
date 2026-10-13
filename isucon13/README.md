@@ -1,21 +1,29 @@
 # ISUCON13
 
-[Ubuntu Server 22.04 の公式 ISO (amd64)](https://releases.ubuntu.com/22.04/) を使い、アプリ VM 3 台とベンチ VM 1 台を構築します。前提条件は [トップの README](../README.md#前提条件) を参照してください。
+[Ubuntu Server 22.04 公式 ISO (amd64)](https://releases.ubuntu.com/22.04/) を使い、本番同様にアプリ VM 3 台＋ベンチ VM 1 台を構築します。前提条件は [トップの README](../README.md#前提条件) を参照してください。
 
 ## 構成
 
-| 項目 | アプリ VM | ベンチ VM |
+| 項目 | アプリ VM（3 台） | ベンチ VM（1 台） |
 | :--- | :--- | :--- |
-| VM 名 | `isucon13-app01`〜`isucon13-app03` | `isucon13-bench` |
-| 固定 IP | `192.168.13.2`〜`.4` | `192.168.13.5` |
-| vCPU / メモリ / ディスク | 2 / 4 GiB / 40 GiB | 8 / 4 GiB / 40 GiB |
+| VM 名 | `isucon13-app01` 〜 `isucon13-app03` | `isucon13-bench` |
+| 固定 IP | `192.168.13.2` 〜 `192.168.13.4` | `192.168.13.5` |
+| スペック / 台 | 2 vCPU / 4 GiB メモリ / 40 GiB ディスク | 8 vCPU / 4 GiB メモリ / 40 GiB ディスク |
 
-- Windows 側は Internal Switch `ISUCON13` に `192.168.13.1` で接続します。インターネット接続は `Default Switch` を使います。
-- ローカルドメインは `*.u.isucon.test` / `*.t.isucon.test` で、TLS 証明書はローカル CA が発行します。本番と同じ 3 枚の証明書チェーンを配信します。
+### 必要リソース（既定値）
+
+- メモリ: 計 16 GiB（ベンチ VM を本番同様の 8 GiB にする場合は計 20 GiB）
+- ディスク: 最大計 160 GiB（可変容量）
+- CPU: 合計 14 vCPU
+
+### ネットワーク・ドメイン
+
+- **内部ネットワーク**: Internal Switch `ISUCON13` を作成し、Windows 側は `192.168.13.1` で接続します。インターネット接続には `Default Switch` を使います。
+- **ドメイン / TLS**: `*.u.isucon.test` / `*.t.isucon.test` を使用します。ローカル CA から本番同様の 3 枚の証明書チェーン（サーバー証明書 → 中間 CA → ルート CA）を発行・配信します。
 
 ## 構築
 
-管理者権限の PowerShell から実行します。ISO のパスは手元のファイル名に合わせてください。
+管理者権限の PowerShell 7 で実行します。
 
 ```powershell
 $outputPath = 'D:\isucon13'
@@ -24,13 +32,27 @@ $outputPath = 'D:\isucon13'
     -OutputPath $outputPath
 ```
 
-`$outputPath` に VM・SSH 鍵・ログを保存します。必要に応じて以下の引数を追加します。
+`$outputPath` 配下に VM（VHDX）、SSH 鍵、構築ログが保存されます。
 
-| 引数 | 用途 |
-| :--- | :--- |
-| `-BenchmarkerMemoryBytes 8GB` | ベンチ VM のメモリを本番と同じ 8 GiB にする |
-| `-NetworkPrefix '192.168.x.0/24'` | 既存ネットワークとアドレス帯が重なる場合に変更する |
-| `-InternalSwitchName '<名前>'` | 同名の仮想スイッチが既にある場合に変更する |
+### オプション引数
+
+| 引数 | 既定値 | 用途 |
+| :--- | :--- | :--- |
+| `-BenchmarkerMemoryBytes 8GB` | `4GB` | ベンチ VM のメモリを本番同様の 8 GiB に増量 |
+| `-NetworkPrefix '192.168.x.0/24'` | `192.168.13.0/24` | アドレス帯が競合する場合に変更 |
+| `-InternalSwitchName '<名前>'` | `ISUCON13` | 仮想スイッチ名が競合する場合に変更 |
+
+## 仮想 DVD ドライブと ISO ファイルの削除
+
+OS インストール完了後、仮想 DVD ドライブと ISO ファイルは残るため手動で削除してください。
+
+- **DVD ドライブの削除（PowerShell）**:
+  ```powershell
+  Get-VM 'isucon13-*' | Get-VMDvdDrive | Remove-VMDvdDrive
+  ```
+  ※ Hyper-V マネージャーの [設定] → [SCSI コントローラー] からも削除できます。
+- **ISO ファイルの削除**:
+  `$outputPath\vm\*\seed.iso` や `install-*.iso` を手動で削除します。
 
 ## SSH 接続
 
@@ -44,16 +66,18 @@ ssh -i "$outputPath\ssh\id_ed25519" `
     "ubuntu@$vmIP"
 ```
 
-他の VM に接続する場合は、[構成](#構成) の表に合わせて `$vmName` と `$vmIP` を変更します。競技ユーザーで作業する場合は、接続後に `sudo -iu isucon` を実行します。アプリの作業ディレクトリは `/home/isucon/webapp` です。
+- 他の VM は `$vmName` と `$vmIP` を変更してください。
+- 競技ユーザーへの切替: `sudo -iu isucon`（作業ディレクトリ: `/home/isucon/webapp`）
 
 ## Web アプリの確認
 
-Windows の hosts ファイル（`C:\Windows\System32\drivers\etc\hosts`）に追加し、`https://pipe.u.isucon.test/` にアクセスします。
-ローカル CA を Windows 側では信頼していないため、ブラウザの警告画面でアクセスを続行してください。
+ブラウザで確認する場合は、Windows の `C:\Windows\System32\drivers\etc\hosts` に以下を追加して `https://pipe.u.isucon.test/` にアクセスします（証明書の警告は無視して続行）。
 
 ```text
 192.168.13.2 pipe.u.isucon.test
 ```
+
+hosts を編集せずに CLI で確認する場合:
 
 ```powershell
 curl.exe --noproxy '*' --insecure --resolve pipe.u.isucon.test:443:192.168.13.2 https://pipe.u.isucon.test/
@@ -61,7 +85,7 @@ curl.exe --noproxy '*' --insecure --resolve pipe.u.isucon.test:443:192.168.13.2 
 
 ## ベンチマーク
 
-`isucon13-bench` に SSH 接続して実行します。`--nameserver` は対象アプリ VM の固定 IP です。
+`isucon13-bench` に SSH 接続して実行します（`--nameserver` は対象アプリ VM の IP）。
 
 ```bash
 cd /home/ubuntu/isucon13/bench
@@ -69,39 +93,35 @@ cd /home/ubuntu/isucon13/bench
   --nameserver 192.168.13.2 --enable-ssl
 ```
 
-初期化と整合性確認のみの場合は `--pretest-only` を追加します。負荷ベンチマークの結果は `/tmp/result.json` に保存します。
+- 初期化・整合性チェックのみ: `--pretest-only` を追加
+- 結果出力先: `/tmp/result.json`
 
 ## プロビジョニングの再実行
 
-アプリやベンチを構築し直す場合は、対象 VM を起動した状態で管理者権限の PowerShell から実行します。**アプリ VM の DB・アプリ・証明書は初期化されます。**
+対象 VM を起動した状態で実行します。**※ アプリ VM の DB・コード・証明書は初期化されます。**
 
 ```powershell
 $outputPath = 'D:\isucon13'
+# アプリ VM
 .\isucon13\provision.ps1 -VMName 'isucon13-app01' -OutputPath $outputPath
+
+# ベンチ VM
 .\isucon13\provision.ps1 -VMName 'isucon13-bench' -OutputPath $outputPath -Role benchmarker
 ```
 
-ログは `$outputPath\logs` に保存します。
+ログは `$outputPath\logs` に保存されます。
 
 ## ローカル環境用の調整
 
-- ゲスト固有処理は `provision.sh` です。アプリは `application.yml`、ベンチは `benchmark.yml` を実行します。
-- ビルド準備に Go 1.21、アプリ用には Node.js 20 と Corepack を使用し、撤去後に公式 Ansible が各言語のランタイムを導入します。
-- `isucon.dev` を `isucon.test` に置き換え、PowerDNS の登録には `isucon` NIC の固定 IP を使います。
-- 本番に合わせた鍵方式（u：ECDSA P-256、t：RSA 2048 ビット）でローカル CA から証明書を発行し、ベンチマーカー側では証明書検証を省略します。
-- Ubuntu 5.15 カーネルでの Node/libuv ビルド停止を避けるため、`UV_USE_IO_URING=0` を設定し、Ansible の sudo にも引き継ぎます。
+- **プロビジョニング**: `provision.sh` 内でアプリは `application.yml`、ベンチは `benchmark.yml` を実行します。
+- **一時ビルドツール**: ビルド用に Go 1.21 や Node.js 20 / Corepack を一時インストールし、撤去後に公式 Ansible で各言語ランタイムを導入します。
+- **ドメイン / DNS**: `isucon.dev` を `isucon.test` に置換し、PowerDNS には内部 NIC（`isucon`）の固定 IP を登録します。
+- **TLS**: 本番と同じ鍵種別（u: ECDSA P-256、t: RSA 2048）でローカル CA から発行します。ベンチマーカー側の検証は省略します。
+- **io_uring 回避**: Ubuntu 22.04（Linux 5.15）での Node.js ビルド停止を避けるため、`UV_USE_IO_URING=0` を設定します。
 
 ## TLS チェーンの再現
 
-ローカルのルート CA（RSA 4096 ビット）と中間 CA（RSA 2048 ビット）を作り、サーバー証明書 → 中間 CA → ルート CA の 3 枚を nginx から配信します。`_.u.isucon.test.issuer.crt` には後ろの 2 枚を保存します。サーバー証明書の鍵方式とチェーンの枚数を本番に合わせ、チェーンを含む通信量を再現します。
-
-証明書には CA 制約、鍵用途、ホスト名など接続に必要な拡張を設定し、生成時に OpenSSL で署名とホスト名を検証します。CA の秘密鍵はプロビジョニング終了時に一時ディレクトリとともに削除します。
-
-## 動作確認状況
-
-旧フォルダー構成では Hyper-V 上での実機構築を確認しています。現在のフォルダー構成に変更した後は構文・ファイル参照のみ確認しており、実機での再構築は未実施です。
-
-TLS 生成処理は一時的な wslc コンテナ内で検証しています。nginx が 3 枚のチェーンを配信すること、署名・ホスト名の検証を確認しました。
+プライベートのルート CA（RSA 4096）と中間 CA（RSA 2048）を作成し、nginx から「サーバー証明書 → 中間 CA → ルート CA」の 3 枚チェーンを配信して本番の通信量を再現します（`_.u.isucon.test.issuer.crt` に後ろ 2 枚を格納）。CA 秘密鍵はプロビジョニング完了時に削除されます。
 
 ## 参考
 

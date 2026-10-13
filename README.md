@@ -1,18 +1,24 @@
 # Hyper-V ISUCON 検証環境
 
-ISUCON の過去問を、Hyper-V 上にアプリ VM 3 台＋ベンチマーク VM 1 台の構成で自動構築するスクリプトです。
+ISUCON の過去問を、本番同様の複数台構成（競技用 VM 複数台＋ベンチマーク専用 VM 1 台）で Hyper-V 上に自動構築するスクリプトです（単一 VM の簡易環境ではありません）。
 
-OS インストール後は仮想ディスクを起動順の先頭に設定します。DVD ドライブと生成した ISO は残します。不要になったら、Hyper-V マネージャーで DVD ドライブを削除し、ISO ファイルを手動で削除してください。
+## 対応大会
 
-| 大会 | 手順 |
-| :--- | :--- |
-| ISUCON13 | [isucon13/README.md](isucon13/README.md) |
-| ISUCON14 | [isucon14/README.md](isucon14/README.md) |
+| 大会 | 構成 | 詳細 |
+| :--- | :--- | :--- |
+| ISUCON13 | アプリ VM 3 台 ＋ ベンチ VM 1 台 | [isucon13/README.md](isucon13/README.md) |
+| ISUCON14 | アプリ VM 3 台 ＋ ベンチ VM 1 台 | [isucon14/README.md](isucon14/README.md) |
 
 ## 前提条件
 
-- Windows 10 / 11（Hyper-V を有効化済み）
-- PowerShell 7.3 以上（管理者権限で実行）
+- Windows 10 / 11（Hyper-V 有効化済み）
+- PowerShell 7.3 以上（管理者権限）
 - Windows OpenSSH Client
-- WSLC を利用できる WSL 2.9.3 以上（`wslc version` で確認）
-- VM 4 台分のメモリ（既定で計 16 GiB）とディスク（可変長で最大計 160 GiB）、インターネット接続
+- WSL 2.9.3 以上（WSLC 利用可能、`wslc version` で確認）
+- 対象大会の VM 群を動かせる CPU / メモリ / ディスク（詳細は各大会の README を参照）
+- インターネット接続
+
+## 注意事項
+
+- **仮想 DVD ドライブと ISO の削除**:
+  OS インストール完了後に起動順は仮想ディスクへ自動変更されますが、マウントされた仮想 DVD ドライブと ISO ファイルは残ります。不要になったら削除してください（手順は各大会の README を参照）。

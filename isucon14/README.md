@@ -42,18 +42,6 @@ $outputPath = 'D:\isucon14'
 | `-NetworkPrefix '192.168.x.0/24'` | `192.168.14.0/24` | アドレス帯が競合する場合に変更 |
 | `-InternalSwitchName '<名前>'` | `ISUCON14` | 仮想スイッチ名が競合する場合に変更 |
 
-## 仮想 DVD ドライブと ISO ファイルの削除
-
-OS インストール完了後、仮想 DVD ドライブと ISO ファイルは残るため手動で削除してください。
-
-- **DVD ドライブの削除（PowerShell）**:
-  ```powershell
-  Get-VM 'isucon14-*' | Get-VMDvdDrive | Remove-VMDvdDrive
-  ```
-  ※ Hyper-V マネージャーの [設定] → [SCSI コントローラー] からも削除できます。
-- **ISO ファイルの削除**:
-  `$outputPath\vm\*\seed.iso` や `install-*.iso` を手動で削除します。
-
 ## SSH 接続
 
 ```powershell

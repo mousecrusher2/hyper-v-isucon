@@ -11,7 +11,7 @@
 | vCPU / メモリ / ディスク | 2 / 4 GiB / 40 GiB | 8 / 4 GiB / 40 GiB |
 
 - Windows 側は Internal Switch `ISUCON13` に `192.168.13.1` で接続します。インターネット接続は `Default Switch` を使います。
-- ローカルドメインは `*.u.isucon.test` / `*.t.isucon.test` で、TLS 証明書は自己署名です。
+- ローカルドメインは `*.u.isucon.test` / `*.t.isucon.test` で、TLS 証明書はローカル CA が発行します。本番と同じ 3 枚の証明書チェーンを配信します。
 
 ## 構築
 
@@ -49,7 +49,7 @@ ssh -i "$outputPath\ssh\id_ed25519" `
 ## Web アプリの確認
 
 Windows の hosts ファイル（`C:\Windows\System32\drivers\etc\hosts`）に追加し、`https://pipe.u.isucon.test/` にアクセスします。
-自己署名証明書を使うため、ブラウザの警告画面でアクセスを続行してください。
+ローカル CA を Windows 側では信頼していないため、ブラウザの警告画面でアクセスを続行してください。
 
 ```text
 192.168.13.2 pipe.u.isucon.test
@@ -88,12 +88,20 @@ $outputPath = 'D:\isucon13'
 - ゲスト固有処理は `provision.sh` です。アプリは `application.yml`、ベンチは `benchmark.yml` を実行します。
 - ビルド準備に Go 1.21、アプリ用には Node.js 20 と Corepack を使用し、撤去後に公式 Ansible が各言語のランタイムを導入します。
 - `isucon.dev` を `isucon.test` に置き換え、PowerDNS の登録には `isucon` NIC の固定 IP を使います。
-- 本番に合わせた鍵方式（u：ECDSA P-256、t：RSA 2048 ビット）で自己署名証明書を生成し、ベンチマーカー側では証明書検証を省略します。
+- 本番に合わせた鍵方式（u：ECDSA P-256、t：RSA 2048 ビット）でローカル CA から証明書を発行し、ベンチマーカー側では証明書検証を省略します。
 - Ubuntu 5.15 カーネルでの Node/libuv ビルド停止を避けるため、`UV_USE_IO_URING=0` を設定し、Ansible の sudo にも引き継ぎます。
+
+## TLS チェーンの再現
+
+ローカルのルート CA（RSA 4096 ビット）と中間 CA（RSA 2048 ビット）を作り、サーバー証明書 → 中間 CA → ルート CA の 3 枚を nginx から配信します。`_.u.isucon.test.issuer.crt` には後ろの 2 枚を保存します。サーバー証明書の鍵方式とチェーンの枚数を本番に合わせ、チェーンを含む通信量を再現します。
+
+証明書には CA 制約、鍵用途、ホスト名など接続に必要な拡張を設定し、生成時に OpenSSL で署名とホスト名を検証します。CA の秘密鍵はプロビジョニング終了時に一時ディレクトリとともに削除します。
 
 ## 動作確認状況
 
 旧フォルダー構成では Hyper-V 上での実機構築を確認しています。現在のフォルダー構成に変更した後は構文・ファイル参照のみ確認しており、実機での再構築は未実施です。
+
+TLS 生成処理は一時的な wslc コンテナ内で検証しています。nginx が 3 枚のチェーンを配信すること、署名・ホスト名の検証を確認しました。
 
 ## 参考
 

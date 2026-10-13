@@ -11,7 +11,7 @@
 | vCPU / メモリ / ディスク | 2 / 4 GiB / 40 GiB | 8 / 4 GiB / 40 GiB |
 
 - Windows 側は Internal Switch `ISUCON14` に `192.168.14.1` で接続します。インターネット接続は `Default Switch` を使います。
-- ローカルドメインは `*.xiv.isucon.test` / `xiv.isucon.test` で、TLS 証明書は自己署名（RSA 2048 ビット）です。
+- ローカルドメインは `*.xiv.isucon.test` / `xiv.isucon.test` で、TLS 証明書はローカル CA が発行します（RSA 2048 ビット）。本番と同じ 2 枚の証明書チェーンを配信します。
 
 ## 構築
 
@@ -49,7 +49,7 @@ ssh -i "$outputPath\ssh\id_ed25519" `
 ## Web アプリの確認
 
 Windows の hosts ファイル（`C:\Windows\System32\drivers\etc\hosts`）に追加し、`https://isuride.xiv.isucon.test/` にアクセスします。
-自己署名証明書を使うため、ブラウザの警告画面でアクセスを続行してください。
+ローカル CA を Windows 側では信頼していないため、ブラウザの警告画面でアクセスを続行してください。
 
 ```text
 192.168.14.2 isuride.xiv.isucon.test
@@ -94,13 +94,21 @@ $outputPath = 'D:\isucon14'
 - ゲスト固有処理は `provision.sh` です。アプリは `application-base.yml` → `application.yml`、ベンチは `benchmark.yml` を実行します。
 - フロントエンドの準備には Node.js 22 と pnpm 9、ベンチの準備には Go 1.23 を使用します。準備用ツールを撤去してから公式 Ansible を実行します。
 - Ubuntu 24.04 の deb822 APT 設定に合わせて、公式のパッケージ準備処理の対象パスを変更します。
-- `xiv.isucon.net` を `xiv.isucon.test` に置き換え、自己署名証明書を生成します。アプリ内で証明書を信頼させ、`isuride-matcher` がローカル HTTPS API に接続できるようにします。
-- ベンチマーカー側は自己署名証明書の検証を省略します。フロントエンドは再実行時にも `webapp/public` へファイルをコピーします。
+- `xiv.isucon.net` を `xiv.isucon.test` に置き換え、ローカル CA から証明書を発行します。`isuride-matcher` の `curl` に `-k` を付けて証明書検証を省略し、ローカル HTTPS API に接続できるようにします。
+- ベンチマーカー側はローカル CA の証明書検証を省略します。フロントエンドは再実行時にも `webapp/public` へファイルをコピーします。
 - 大会運営者用の `isuadmin-user` と AWS ポータル向けの `envcheck` ロールは省略します。
+
+## TLS チェーンの再現
+
+ローカルのルート CA（RSA 4096 ビット）と中間 CA（RSA 2048 ビット）を作り、サーバー証明書（RSA 2048 ビット）→ 中間 CA の 2 枚を nginx から配信します。サーバー証明書の鍵方式とチェーンの枚数を本番に合わせ、チェーンを含む通信量を再現します。`isuride-matcher` は `curl -k` で接続します。
+
+証明書には CA 制約、鍵用途、ホスト名など接続に必要な拡張を設定し、生成時に OpenSSL で署名とホスト名を検証します。CA の秘密鍵はプロビジョニング終了時に一時ディレクトリとともに削除します。デフォルトサーバー用の `dummy.crt` は本番と同じ ECDSA P-256 で生成します。
 
 ## 動作確認状況
 
 構文・ファイル参照のみ確認しています。Hyper-V 上での無人インストール・全言語ビルド・ベンチマークは未検証です。
+
+TLS 生成処理は一時的な wslc コンテナ内で検証しています。nginx が 2 枚のチェーンを配信すること、署名・ホスト名の検証、`curl -k` による HTTPS 接続を確認しました。
 
 ## 参考
 

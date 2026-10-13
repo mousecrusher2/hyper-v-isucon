@@ -39,13 +39,11 @@ Ensure-SSHKey -Path (Join-Path $taskOutputRoot 'ssh\id_ed25519') | Out-Null
 $taskJobs = @()
 $taskIsoContainer = $null
 $taskInstallIso = $taskIso
-$taskGeneratedIso = $null
 try {
     $taskIsoLog = Join-Path $taskOutputRoot "logs\iso-$([guid]::NewGuid()).log"
     $taskIsoContainer = Start-IsoContainer -OutputPath (Join-Path $taskOutputRoot 'vm') -SourceIsoPath $taskIso -LogPath $taskIsoLog
     if ($PrepareIsoScriptPath) {
-        $taskGeneratedIso = Join-Path $taskOutputRoot "vm\install-$([guid]::NewGuid()).iso"
-        $taskInstallIso = $taskGeneratedIso
+        $taskInstallIso = Join-Path $taskOutputRoot "vm\install-$([guid]::NewGuid()).iso"
         & $PrepareIsoScriptPath -SourceIsoPath $taskIso -IsoPath $taskInstallIso -LogPath $taskIsoLog -IsoContainer $taskIsoContainer
     }
     $taskNetwork = & "$taskCommonRoot\hyperv\Initialize-Network.ps1" -SwitchName $InternalSwitchName -NetworkPrefix $NetworkPrefix -AddressCount $Machines.Count
@@ -74,10 +72,6 @@ try {
     try {
         $taskJobs | Where-Object State -in 'NotStarted','Running' | Stop-Job
         $taskJobs | Remove-Job
-        if ($taskGeneratedIso -and (Test-Path -LiteralPath $taskGeneratedIso) -and
-            -not @(Get-VM | Get-VMDvdDrive | Where-Object Path -eq $taskGeneratedIso).Count) {
-            Remove-Item -LiteralPath $taskGeneratedIso
-        }
     } finally {
         if ($taskIsoContainer) { Stop-IsoContainer -Container $taskIsoContainer }
     }

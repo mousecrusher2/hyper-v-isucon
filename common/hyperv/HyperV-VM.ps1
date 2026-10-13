@@ -35,25 +35,12 @@ function New-UnattendedVM {
     Add-VMNetworkAdapter -VM $taskVM -Name $InternalAdapterName -SwitchName $InternalSwitchName
     Disable-VMIntegrationService -VM $taskVM -Name VSS
     Disable-VMConsoleSupport -VMName $Name
-    Set-VMFirmware -VM $taskVM -EnableSecureBoot On -SecureBootTemplate MicrosoftUEFICertificateAuthority
-
-    # Serialize allocation across build workers so the host-wide check and assignment are atomic.
-    $taskMacLock = [Threading.Mutex]::new($false, 'Global\HyperV-RandomMACAddress')
-    $taskLocked = $false
-    try {
-        try { $taskLocked = $taskMacLock.WaitOne([TimeSpan]::FromSeconds(30)) }
-        catch [Threading.AbandonedMutexException] { $taskLocked = $true }
-        if (-not $taskLocked) { throw 'MACアドレスの割り当て待ちがタイムアウトしました。' }
-        foreach ($taskNic in Get-VMNetworkAdapter -VM $taskVM) {
-            do {
-                $taskMac = Get-RandomMACAddress
-                $taskExistingMacs = @((Get-VM | Get-VMNetworkAdapter).MacAddress) + @((Get-VMNetworkAdapter -ManagementOS).MacAddress)
-            } while ($taskMac -in $taskExistingMacs)
-            Set-VMNetworkAdapter -VMNetworkAdapter $taskNic -StaticMacAddress $taskMac
-        }
-    } finally {
-        if ($taskLocked) { $taskMacLock.ReleaseMutex() }
-        $taskMacLock.Dispose()
+    foreach ($taskNic in Get-VMNetworkAdapter -VM $taskVM) {
+        do {
+            $taskMac = Get-RandomMACAddress
+            $taskExistingMacs = @((Get-VM | Get-VMNetworkAdapter).MacAddress) + @((Get-VMNetworkAdapter -ManagementOS).MacAddress)
+        } while ($taskMac -in $taskExistingMacs)
+        Set-VMNetworkAdapter -VMNetworkAdapter $taskNic -StaticMacAddress $taskMac
     }
     $taskVM
 }
@@ -67,14 +54,13 @@ function Mount-VMDvd {
     )
     $taskDVD = Add-VMDvdDrive -VM $VM -Path $InstallerIsoPath -Passthru
     Add-VMDvdDrive -VM $VM -Path $SeedIsoPath
-    Set-VMFirmware -VM $VM -FirstBootDevice $taskDVD
+    Set-VMFirmware -VM $VM -EnableSecureBoot On -SecureBootTemplate MicrosoftUEFICertificateAuthority -FirstBootDevice $taskDVD
 }
 
-function Dismount-VMDvd {
+function Set-VMDiskBoot {
     [CmdletBinding()]
     param([Parameter(Mandatory)][psobject]$VM)
-    Get-VMDvdDrive -VM $VM | Remove-VMDvdDrive
-    Set-VMFirmware -VM $VM -FirstBootDevice (Get-VMHardDiskDrive -VM $VM)
+    Set-VMFirmware -VM $VM -FirstBootDevice (Get-VMHardDiskDrive -VM $VM -ErrorAction Stop) -ErrorAction Stop
 }
 
 function Wait-VMState {

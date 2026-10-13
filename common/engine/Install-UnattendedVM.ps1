@@ -73,8 +73,7 @@ Mount-VMDvd -VM $taskVM -InstallerIsoPath $taskIso -SeedIsoPath "$taskVmDir\seed
 Start-VM -VM $taskVM
 Write-Host "OSインストール完了時の停止を待っています: $Name"
 Wait-VMState -VMName $Name -State Off -TimeoutMinutes $TimeoutMinutes
-Dismount-VMDvd -VM $taskVM
-if ($PrepareIsoScriptPath) { Remove-Item -LiteralPath $taskIso }
+Set-VMDiskBoot -VM $taskVM
 Start-VM -VM $taskVM
 
 $taskConnection = New-GuestSSHConnection -VMName $Name -UserName $GuestUserName -IdentityFile $taskKey.IdentityFile `

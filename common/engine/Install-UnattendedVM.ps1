@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 #requires -RunAsAdministrator
 [CmdletBinding()]
 param(
@@ -15,6 +15,7 @@ param(
     [Parameter(Mandatory)][long]$MemoryBytes,
     [Parameter(Mandatory)][int]$ProcessorCount,
     [Parameter(Mandatory)][long]$DiskSizeBytes,
+    [ValidateRange(0,[long]::MaxValue)][long]$MaximumIOPS = 0,
     [string]$InternalAdapterName = 'internal',
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45,
     [string]$PrepareIsoScriptPath,
@@ -41,7 +42,8 @@ if (@(Get-VM | Get-VMNetworkAdapter | Where-Object { $_.SwitchName -eq $Internal
 $taskVmDir = Join-Path $taskOutputRoot "vm\$Name"
 $taskKey = Ensure-SSHKey -Path (Join-Path $taskOutputRoot 'ssh\id_ed25519')
 $taskVM = New-UnattendedVM -Name $Name -Path $taskVmDir -SwitchName $SwitchName -InternalSwitchName $InternalSwitchName `
-    -MemoryBytes $MemoryBytes -ProcessorCount $ProcessorCount -DiskSizeBytes $DiskSizeBytes -InternalAdapterName $InternalAdapterName
+    -MemoryBytes $MemoryBytes -ProcessorCount $ProcessorCount -DiskSizeBytes $DiskSizeBytes `
+    -MaximumIOPS $MaximumIOPS -InternalAdapterName $InternalAdapterName
 $taskEncoding = [Text.UTF8Encoding]::new($false)
 $taskOwnContainer = $null
 try {
@@ -65,7 +67,11 @@ try {
     New-Item -ItemType Directory -Path $taskSeed | Out-Null
     [IO.File]::WriteAllText((Join-Path $taskSeed 'user-data'), $taskUserData.Replace("`r`n", "`n") + "`n", $taskEncoding)
     [IO.File]::WriteAllText((Join-Path $taskSeed 'meta-data'), "instance-id: iid-$([guid]::NewGuid())`nlocal-hostname: $Name`n", $taskEncoding)
-    & "$taskCommonRoot\iso\New-NoCloudIso.ps1" -SourcePath $taskSeed -IsoPath "$taskVmDir\seed.iso" -IsoContainer $IsoContainer
+    $taskLinuxSeed = Get-IsoContainerPath -Container $IsoContainer -Path $taskSeed
+    $taskLinuxSeedIso = Get-IsoContainerPath -Container $IsoContainer -Path "$taskVmDir\seed.iso"
+    & wslc.exe exec $IsoContainer.Name xorriso -no_rc -as mkisofs -V cidata -J -r -o $taskLinuxSeedIso $taskLinuxSeed `
+        2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'NoCloud ISOの生成に失敗しました。' }
 } finally {
     if ($taskOwnContainer) { Stop-IsoContainer -Container $taskOwnContainer }
 }

@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 
 function Ensure-SSHKey {
     [CmdletBinding()]
@@ -77,9 +77,9 @@ function Invoke-GuestCommand {
     if ($LogPath) {
         New-Item -ItemType Directory -Path (Split-Path -Parent $LogPath) -Force | Out-Null
         & ssh @taskOptions $Connection.Target ($Command.Replace("`r`n", "`n")) 2>&1 |
-            Tee-Object -FilePath $LogPath -Append | ForEach-Object { Write-Host $_ }
+            Tee-Object -FilePath $LogPath -Append | Out-Host
     } else {
-        & ssh @taskOptions $Connection.Target ($Command.Replace("`r`n", "`n")) 2>&1 | ForEach-Object { Write-Host $_ }
+        & ssh @taskOptions $Connection.Target ($Command.Replace("`r`n", "`n")) 2>&1 | Out-Host
     }
     if ($LASTEXITCODE -ne 0) { throw "VM $($Connection.VMName) のコマンド実行に失敗しました (exit=$LASTEXITCODE)。ログ: $LogPath" }
 }
@@ -98,10 +98,10 @@ function Send-GuestFile {
     $taskOptions = $Connection.Options
     if ($LogPath) {
         New-Item -ItemType Directory -Path (Split-Path -Parent $LogPath) -Force | Out-Null
-        & scp @taskOptions $taskSource "$($Connection.Target):$DestinationPath" 2>&1 |
-            Tee-Object -FilePath $LogPath -Append | ForEach-Object { Write-Host $_ }
+        & scp -r @taskOptions $taskSource "$($Connection.Target):$DestinationPath" 2>&1 |
+            Tee-Object -FilePath $LogPath -Append | Out-Host
     } else {
-        & scp @taskOptions $taskSource "$($Connection.Target):$DestinationPath" 2>&1 | ForEach-Object { Write-Host $_ }
+        & scp -r @taskOptions $taskSource "$($Connection.Target):$DestinationPath" 2>&1 | Out-Host
     }
     if ($LASTEXITCODE -ne 0) { throw "VM $($Connection.VMName) へのファイル転送に失敗しました (exit=$LASTEXITCODE)。ログ: $LogPath" }
 }

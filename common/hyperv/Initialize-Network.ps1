@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 #requires -RunAsAdministrator
 [CmdletBinding()]
 param(
@@ -9,71 +9,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-function Get-IPv4Range([string]$Prefix) {
-    if ($Prefix -notmatch '^(\d+\.\d+\.\d+\.\d+)/(\d|[12]\d|3[0-2])$') { throw "IPv4のCIDRを指定してください: $Prefix" }
-    $taskAddress = [Net.IPAddress]::Parse($Matches[1])
-    $taskLength = [int]$Matches[2]
-    [long]$taskNumber = 0
-    foreach ($taskByte in $taskAddress.GetAddressBytes()) { $taskNumber = $taskNumber * 256 + $taskByte }
-    [long]$taskSize = [math]::Pow(2, 32 - $taskLength)
-    $taskStart = $taskNumber - $taskNumber % $taskSize
-    [pscustomobject]@{ Start = $taskStart; End = $taskStart + $taskSize - 1; Number = $taskNumber; PrefixLength = $taskLength }
-}
-function ConvertTo-IPv4([long]$Number) {
-    @((($Number -shr 24) -band 255), (($Number -shr 16) -band 255), (($Number -shr 8) -band 255), ($Number -band 255)) -join '.'
-}
-$taskRange = Get-IPv4Range $NetworkPrefix
-$taskAllowed = @('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16') |
-    ForEach-Object { Get-IPv4Range $_ } | Where-Object { $taskRange.Start -ge $_.Start -and $taskRange.End -le $_.End }
-if (-not $taskAllowed -or ($taskRange.End - $taskRange.Start + 1) -lt ($AddressCount + 3) -or $taskRange.Number -ne $taskRange.Start) {
-    throw "NetworkPrefixにはVM $AddressCount 台とWindows側のIPを収容できる、プライベートIPv4のネットワークアドレスを指定してください。"
-}
-$taskHostIP = ConvertTo-IPv4 ($taskRange.Start + 1)
-$taskHostPrefix = "$taskHostIP/$($taskRange.PrefixLength)"
-$taskVMIPs = @(2..($AddressCount + 1) | ForEach-Object { ConvertTo-IPv4 ($taskRange.Start + $_) })
-if (Get-VMSwitch -Name $SwitchName -ErrorAction SilentlyContinue) {
-    throw "スイッチ '$SwitchName' は既に存在します。SwitchNameには新規作成するスイッチの名前を指定してください。"
-}
-$taskAddresses = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop)
-$taskHint = '重複しないアドレス帯をNetworkPrefixで指定してください。'
-foreach ($taskNat in Get-NetNat -ErrorAction Stop) {
-    if (-not $taskNat.InternalIPInterfaceAddressPrefix) { continue }
-    $taskExisting = Get-IPv4Range $taskNat.InternalIPInterfaceAddressPrefix
-    if ($taskRange.Start -le $taskExisting.End -and $taskExisting.Start -le $taskRange.End) {
-        throw "指定したアドレス帯 $NetworkPrefix が既存のネットワークと重複しています（$($taskNat.Name): $($taskNat.InternalIPInterfaceAddressPrefix)）。$taskHint"
-    }
-}
-foreach ($taskAddress in $taskAddresses) {
-    $taskExisting = Get-IPv4Range "$($taskAddress.IPAddress)/$($taskAddress.PrefixLength)"
-    if ($taskRange.Start -le $taskExisting.End -and $taskExisting.Start -le $taskRange.End) {
-        throw "指定したアドレス帯 $NetworkPrefix が既存のネットワークと重複しています（$($taskAddress.InterfaceAlias): $($taskAddress.IPAddress)/$($taskAddress.PrefixLength)）。$taskHint"
-    }
-}
-foreach ($taskStore in 'ActiveStore','PersistentStore') {
-    foreach ($taskRoute in Get-NetRoute -PolicyStore $taskStore -ErrorAction Stop |
-        Where-Object { $_.DestinationPrefix -match '^\d+\.' -and $_.DestinationPrefix -ne '0.0.0.0/0' }) {
-        $taskExisting = Get-IPv4Range $taskRoute.DestinationPrefix
-        if ($taskRange.Start -le $taskExisting.End -and $taskExisting.Start -le $taskRange.End) {
-            throw "指定したアドレス帯 $NetworkPrefix が既存のネットワークと重複しています（経路 $($taskRoute.DestinationPrefix)、$taskStore）。$taskHint"
-        }
-    }
-}
-$taskCreatedSwitch = $null
+$taskNetwork = [Net.IPNetwork]::Parse($NetworkPrefix)
+$taskPrivate = @('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16') |
+    ForEach-Object { [Net.IPNetwork]::Parse($_) } |
+    Where-Object { $taskNetwork.PrefixLength -ge $_.PrefixLength -and $_.Contains($taskNetwork.BaseAddress) }
+if (-not $taskPrivate) { throw 'プライベートIPv4のネットワークアドレスを指定してください。' }
+$taskBytes = $taskNetwork.BaseAddress.GetAddressBytes()
+[Array]::Reverse($taskBytes)
+$taskBase = [BitConverter]::ToUInt32($taskBytes, 0)
+$taskIPs = @(1..($AddressCount + 2) | ForEach-Object {
+    $taskBytes = [BitConverter]::GetBytes([uint32]($taskBase + $_))
+    [Array]::Reverse($taskBytes)
+    [Net.IPAddress]::new($taskBytes)
+})
+if (-not $taskNetwork.Contains($taskIPs[-1])) { throw "NetworkPrefixにはVM $AddressCount 台とWindows側のIPを収容できるアドレス帯を指定してください。" }
+$taskHostIP = $taskIPs[0].ToString()
+
+$taskSwitch = New-VMSwitch -Name $SwitchName -SwitchType Internal -ErrorAction Stop
 try {
-    $taskCreatedSwitch = New-VMSwitch -Name $SwitchName -SwitchType Internal -ErrorAction Stop
     $taskAdapter = Get-NetAdapter -Name "vEthernet ($SwitchName)" -ErrorAction Stop
-    New-NetIPAddress -InterfaceIndex $taskAdapter.ifIndex -IPAddress $taskHostIP -PrefixLength $taskRange.PrefixLength -ErrorAction Stop | Out-Null
-    $taskDeadline = (Get-Date).AddMinutes(2)
-    do {
-        $taskReady = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
-            Where-Object { $_.InterfaceIndex -eq $taskAdapter.ifIndex -and $_.IPAddress -eq $taskHostIP -and $_.AddressState -eq 'Preferred' })
-        if ($taskReady.Count) { break }
-        if ((Get-Date) -ge $taskDeadline) { throw "Windows側IPv4 $taskHostPrefix が利用可能になりませんでした。" }
-        Start-Sleep -Seconds 2
-    } while ($true)
-    Write-Host "固定IP用ネットワーク: $SwitchName (Windows側 $taskHostPrefix)"
-    [pscustomobject]@{ HostIPAddress = $taskHostIP; VMAddresses = @($taskVMIPs); PrefixLength = $taskRange.PrefixLength }
+    New-NetIPAddress -InterfaceIndex $taskAdapter.ifIndex -IPAddress $taskHostIP -PrefixLength $taskNetwork.PrefixLength -ErrorAction Stop | Out-Null
 } catch {
-    if ($taskCreatedSwitch) { Remove-VMSwitch -VMSwitch $taskCreatedSwitch -Force -ErrorAction Stop }
+    Remove-VMSwitch -VMSwitch $taskSwitch -Force -ErrorAction Stop
     throw
 }
+Write-Host "固定IP用ネットワーク: $SwitchName (Windows側 $taskHostIP/$($taskNetwork.PrefixLength))"
+[pscustomobject]@{ HostIPAddress = $taskHostIP; VMAddresses = @($taskIPs[1..$AddressCount] | ForEach-Object { $_.ToString() }); PrefixLength = $taskNetwork.PrefixLength }

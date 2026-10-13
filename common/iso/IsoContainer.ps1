@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 
 function Start-IsoContainer {
     [CmdletBinding()]
@@ -25,11 +25,10 @@ function Start-IsoContainer {
         $taskInstall = @'
 set -eu
 apt-get update
-apt-get upgrade -y
 apt-get install -y --no-install-recommends xorriso
 '@
         & wslc.exe exec $taskContainer.Name sh -c ($taskInstall.Replace("`r`n", "`n")) `
-            2>&1 | Tee-Object -FilePath $taskLog | ForEach-Object { Write-Host $_ }
+            2>&1 | Tee-Object -FilePath $taskLog | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "ISO生成用ツールの準備に失敗しました。ログ: $taskLog" }
         $taskInitialized = $true
         $taskContainer

@@ -13,7 +13,7 @@ test "$(id -un)" = ubuntu
 test "$ID" = ubuntu && test "$VERSION_ID" = 24.04
 sudo -n cloud-init status --wait --long
 sudo -n apt-get update
-sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y ansible ca-certificates curl git gnupg liblzma-dev make openssl snapd xz-utils
+sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y ansible ca-certificates curl git gnupg liblzma-dev make snapd xz-utils
 
 if test "$role" = application; then
     sudo -n mkdir -p /etc/apt/keyrings
@@ -47,53 +47,7 @@ if test "$role" = application; then
     sed -i '/^    - isuadmin-user$/d; /^    - envcheck$/d' provisioning/ansible/application.yml
     sed -i 's/curl -s https:/curl -k -s https:/' provisioning/ansible/roles/webapp/files/isuride-matcher.service
     tls_dir=provisioning/ansible/roles/nginx/files/etc/nginx/tls
-    # Serve the leaf and intermediate, as in production.
-    ca_dir=$(mktemp -d)
-    trap 'rm -rf "$ca_dir"' EXIT
-    cat >"$ca_dir/ext.cnf" <<EOF
-[root]
-basicConstraints = critical, CA:true
-keyUsage = critical, keyCertSign, cRLSign
-subjectKeyIdentifier = hash
-
-[intermediate]
-keyUsage = critical, keyCertSign, cRLSign
-basicConstraints = critical, CA:true, pathlen:0
-subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always
-
-[leaf]
-keyUsage = critical, digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth
-basicConstraints = critical, CA:false
-subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always
-subjectAltName = DNS:*.xiv.isucon.test, DNS:xiv.isucon.test
-EOF
-    # issue <name> <genpkey options> <subject> <extension section> [<issuer name>]
-    issue() {
-        local -a key_options signer
-        read -ra key_options <<<"$2"
-        openssl genpkey "${key_options[@]}" -out "$ca_dir/$1.key"
-        openssl req -new -key "$ca_dir/$1.key" -subj "$3" -out "$ca_dir/$1.csr"
-        signer=(-signkey "$ca_dir/$1.key")
-        if test -n "${5:-}"; then
-            signer=(-CA "$ca_dir/$5.crt" -CAkey "$ca_dir/$5.key")
-        fi
-        openssl x509 -req -in "$ca_dir/$1.csr" "${signer[@]}" -sha256 -days 3650 \
-            -extfile "$ca_dir/ext.cnf" -extensions "$4" -out "$ca_dir/$1.crt"
-    }
-    rsa2048='-algorithm RSA -pkeyopt rsa_keygen_bits:2048'
-    issue root-x1 '-algorithm RSA -pkeyopt rsa_keygen_bits:4096' '/C=JP/O=hyper-isucon Certificate Authority/CN=Root X1' root
-    issue r10 "$rsa2048" '/C=JP/O=hyper-isucon/CN=R10' intermediate root-x1
-    issue xiv "$rsa2048" '/CN=*.xiv.isucon.test' leaf r10
-    openssl verify -CAfile "$ca_dir/root-x1.crt" -untrusted "$ca_dir/r10.crt" \
-        -purpose sslserver -verify_hostname isuride.xiv.isucon.test "$ca_dir/xiv.crt"
-    cp "$ca_dir/xiv.key" "$tls_dir/_.xiv.isucon.test.key"
-    cat "$ca_dir/xiv.crt" "$ca_dir/r10.crt" >"$tls_dir/_.xiv.isucon.test.crt"
-    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -sha256 -days 3650 \
-        -subj '/CN=isucon.net' \
-        -keyout "$tls_dir/dummy.key" -out "$tls_dir/dummy.crt"
+    cp /home/ubuntu/tls/* "$tls_dir/"
 
     make -C frontend
     mkdir -p webapp/public provisioning/ansible/roles/webapp/files

@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 #requires -RunAsAdministrator
 [CmdletBinding()]
 param(
@@ -12,7 +12,8 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$IPAddress,
     [Parameter(Mandatory)][ValidateRange(1,29)][int]$PrefixLength,
     [Alias('MemoryMaximumBytes')][ValidateRange(2GB, [long]::MaxValue)][long]$MemoryBytes = 4GB,
-    [int]$ProcessorCount = 4,
+    [ValidateRange(1,1024)][int]$ProcessorCount = 2,
+    [ValidateRange(0,[long]::MaxValue)][long]$MaximumIOPS = [long](125MB / 8KB),
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
 )
 
@@ -24,6 +25,7 @@ $taskParameters.Remove('PreparedIso') | Out-Null
 $taskParameters.SwitchName = $SwitchName
 $taskParameters.MemoryBytes = $MemoryBytes
 $taskParameters.ProcessorCount = $ProcessorCount
+$taskParameters.MaximumIOPS = $MaximumIOPS
 $taskParameters.DiskSizeBytes = 40GB
 $taskParameters.InternalAdapterName = 'isucon'
 $taskParameters.GuestUserName = 'ubuntu'

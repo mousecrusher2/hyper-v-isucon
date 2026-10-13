@@ -12,7 +12,7 @@ ISUCON の過去問を、本番同様の複数台構成（競技用 VM 複数台
 ## 前提条件
 
 - Windows 10 / 11（Hyper-V 有効化済み）
-- PowerShell 7.3 以上（管理者権限）
+- PowerShell 7.4 以上（管理者権限）
 - Windows OpenSSH Client
 - WSL 2.9.3 以上（WSLC 利用可能、`wslc version` で確認）
 - 対象大会の VM 群を動かせる CPU / メモリ / ディスク（詳細は各大会の README を参照）

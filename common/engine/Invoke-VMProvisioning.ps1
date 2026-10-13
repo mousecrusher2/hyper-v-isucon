@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 #requires -RunAsAdministrator
 [CmdletBinding()]
 param(
@@ -8,8 +8,7 @@ param(
     [Parameter(Mandatory)][string]$RemoteScriptPath,
     [Parameter(Mandatory)][string]$ProvisionCommand,
     [Parameter(Mandatory)][string]$GuestUserName,
-    [Parameter(Mandatory)][hashtable]$BuildResourceProfile,
-    [Parameter(Mandatory)][hashtable]$ResourceProfile,
+    [string]$ProvisionAssetsPath,
     [string]$InternalAdapterName = 'internal',
     [string]$IdentityFile
 )
@@ -19,7 +18,6 @@ Set-StrictMode -Version Latest
 $PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $false
 $taskCommonRoot = Split-Path -Parent $PSScriptRoot
-. "$taskCommonRoot\hyperv\HyperV-VM.ps1"
 . "$taskCommonRoot\guest\Guest-SSH.ps1"
 $taskOutputRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputPath)
 $taskScript = (Resolve-Path -LiteralPath $ProvisionScriptPath).Path
@@ -35,12 +33,11 @@ $taskInfo = Get-VHD -Path $taskDisk[0].Path
 if ($taskInfo.VhdFormat -ne 'VHDX' -or $taskInfo.ParentPath) { throw 'VMのディスクが独立したVHDXではありません。' }
 $taskConnection = New-GuestSSHConnection -VMName $VMName -UserName $GuestUserName -IdentityFile $IdentityFile `
     -KnownHostsFile (Join-Path $taskOutputRoot "ssh\known_hosts_$VMName")
-Set-VMResourceProfile -VM $taskVM @BuildResourceProfile
-Wait-GuestSSH -Connection $taskConnection -AdapterName $InternalAdapterName -TimeoutMinutes 5 | Out-Null
+$taskIP = Wait-GuestSSH -Connection $taskConnection -AdapterName $InternalAdapterName -TimeoutMinutes 5
 $taskLog = Join-Path $taskOutputRoot "logs\provision-$VMName-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+if ($ProvisionAssetsPath) {
+    Send-GuestFile -Connection $taskConnection -SourcePath $ProvisionAssetsPath -DestinationPath "/home/$GuestUserName/" -LogPath $taskLog
+}
 Send-GuestFile -Connection $taskConnection -SourcePath $taskScript -DestinationPath $RemoteScriptPath -LogPath $taskLog
 Invoke-GuestCommand -Connection $taskConnection -Command $ProvisionCommand -LogPath $taskLog
-
-Set-VMResourceProfile -VM $taskVM @ResourceProfile
-$taskFinalIP = Wait-GuestSSH -Connection $taskConnection -AdapterName $InternalAdapterName -TimeoutMinutes 5
-Write-Host "構築後の設定を適用しました: $VMName ($($ResourceProfile.ProcessorCount) vCPU, MaximumIOPS=$($ResourceProfile.MaximumIOPS), IPv4=$taskFinalIP)"
+Write-Host "プロビジョニングが完了しました: $VMName (IPv4=$taskIP)"

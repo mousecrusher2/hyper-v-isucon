@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 #requires -RunAsAdministrator
 [CmdletBinding()]
 param(
@@ -23,14 +23,14 @@ $taskMachines = @(
     foreach ($taskVMName in $ApplicationName) {
         [pscustomobject]@{
             Name = $taskVMName
-            InstallParameters = @{ MemoryBytes = $MemoryBytes; ProcessorCount = 4 }
-            ProvisionParameters = @{ Role = 'application'; ProcessorCount = $ProcessorCount }
+            InstallParameters = @{ MemoryBytes = $MemoryBytes; ProcessorCount = $ProcessorCount }
+            ProvisionParameters = @{ Role = 'application' }
         }
     }
     [pscustomobject]@{
         Name = $BenchmarkerName
-        InstallParameters = @{ MemoryBytes = $BenchmarkerMemoryBytes; ProcessorCount = 4 }
-        ProvisionParameters = @{ Role = 'benchmarker'; ProcessorCount = $BenchmarkerProcessorCount }
+        InstallParameters = @{ MemoryBytes = $BenchmarkerMemoryBytes; ProcessorCount = $BenchmarkerProcessorCount; MaximumIOPS = 0 }
+        ProvisionParameters = @{ Role = 'benchmarker' }
     }
 )
 & "$taskCommonRoot\engine\Invoke-ContestBuild.ps1" -IsoPath $IsoPath -OutputPath $OutputPath -Machines $taskMachines `

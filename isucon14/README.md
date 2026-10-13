@@ -19,7 +19,7 @@
 ### ネットワーク・ドメイン
 
 - **内部ネットワーク**: Internal Switch `ISUCON14` を作成し、Windows 側は `192.168.14.1` で接続します。インターネット接続には `Default Switch` を使います。
-- **ドメイン / TLS**: `*.xiv.isucon.test` / `xiv.isucon.test` を使用します。ローカル CA から本番同様の 2 枚の証明書チェーン（サーバー証明書 RSA 2048 → 中間 CA）を配信します。
+- **ドメイン / TLS**: `*.xiv.isucon.test` / `xiv.isucon.test` を使用します。同梱の固定証明書チェーン（サーバー証明書 RSA 2048 → 中間 CA の 2 枚）を配信します。
 
 ## 構築
 
@@ -41,6 +41,8 @@ $outputPath = 'D:\isucon14'
 | `-BenchmarkerMemoryBytes 8GB` | `4GB` | ベンチ VM のメモリを本番同様の 8 GiB に増量 |
 | `-NetworkPrefix '192.168.x.0/24'` | `192.168.14.0/24` | アドレス帯が競合する場合に変更 |
 | `-InternalSwitchName '<名前>'` | `ISUCON14` | 仮想スイッチ名が競合する場合に変更 |
+
+仮想スイッチ名には未使用の名前、アドレス帯には既存ネットワークや VPN の経路と重ならない範囲を指定してください。既定値が競合する場合は、上記の引数で変更できます。
 
 ## SSH 接続
 
@@ -109,13 +111,14 @@ $outputPath = 'D:\isucon14'
 - **プロビジョニング**: `provision.sh` 内でアプリは `application-base.yml` → `application.yml`、ベンチは `benchmark.yml` を実行します。
 - **一時ビルドツール**: フロント用に Node.js 22 / pnpm 9、ベンチ用に Go 1.23 を一時インストールし、撤去後に公式 Ansible を実行します。
 - **APT 設定**: Ubuntu 24.04 の deb822 設定（`ubuntu.sources`）に合わせて対象パスを調整しています。
-- **ドメイン / 証明書**: `xiv.isucon.net` を `xiv.isucon.test` に置換し、ローカル CA から発行します。`isuride-matcher` の `curl` には `-k` を付与します。
+- **ドメイン / 証明書**: `xiv.isucon.net` を `xiv.isucon.test` に置換し、固定証明書を配置します。`isuride-matcher` の `curl` には `-k` を付与します。
+- **VM リソース**: 作成時から指定の vCPU と IOPS 制限を適用し、プロビジョニング時のリソース切り替えや再起動は行いません。
 - **ベンチ / 静的ファイル**: ベンチマーカー側の検証は省略します。再実行時にも `webapp/public` へファイルをコピーします。
 - **除外ロール**: 運営用の `isuadmin-user` と AWS 向けの `envcheck` は除外しています。
 
 ## TLS チェーンの再現
 
-プライベートのルート CA（RSA 4096）と中間 CA（RSA 2048）を作成し、nginx から「サーバー証明書（RSA 2048） → 中間 CA」の 2 枚チェーンを配信して本番の通信量を再現します。CA 秘密鍵は完了時に削除されます（フォールバック用 `dummy.crt` は ECDSA P-256）。
+`tls/` にローカル検証用の固定証明書チェーンとサーバー秘密鍵を同梱しています。有効期限は 2046 年です。プロビジョニング時に転送して nginx の TLS ディレクトリへコピーし、2 枚のチェーンを配信します。フォールバック用の `dummy.crt` は ECDSA P-256 です。CA の秘密鍵は同梱しません。
 
 ## 参考
 

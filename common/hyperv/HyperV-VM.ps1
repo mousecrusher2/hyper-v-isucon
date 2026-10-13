@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 
 function Get-RandomMACAddress {
     $taskMacBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(6)
@@ -16,6 +16,7 @@ function New-UnattendedVM {
         [Parameter(Mandatory)][long]$MemoryBytes,
         [Parameter(Mandatory)][int]$ProcessorCount,
         [Parameter(Mandatory)][long]$DiskSizeBytes,
+        [ValidateRange(0,[long]::MaxValue)][long]$MaximumIOPS = 0,
         [string]$InternalAdapterName = 'internal'
     )
     if (Get-VM -Name $Name -ErrorAction SilentlyContinue) { throw "VM $Name は既に存在します。" }
@@ -30,6 +31,8 @@ function New-UnattendedVM {
     New-VHD -Path $taskDisk -Dynamic -SizeBytes $DiskSizeBytes -BlockSizeBytes 1MB -LogicalSectorSizeBytes 4096 -PhysicalSectorSizeBytes 4096 | Out-Null
     $taskVM = New-VM -Name $Name -Generation 2 -MemoryStartupBytes $MemoryBytes -VHDPath $taskDisk -SwitchName $SwitchName -Path $Path
     Set-VM -VM $taskVM -ProcessorCount $ProcessorCount -AutomaticCheckpointsEnabled $false -CheckpointType Disabled -AutomaticStartAction Nothing -AutomaticStopAction ShutDown
+    Set-VMProcessor -VM $taskVM -HwThreadCountPerCore 2
+    Get-VMHardDiskDrive -VM $taskVM | Set-VMHardDiskDrive -MaximumIOPS $MaximumIOPS
     Set-VMMemory -VM $taskVM -DynamicMemoryEnabled $false
     Get-VMNetworkAdapter -VM $taskVM | Rename-VMNetworkAdapter -NewName uplink
     Add-VMNetworkAdapter -VM $taskVM -Name $InternalAdapterName -SwitchName $InternalSwitchName
@@ -77,26 +80,4 @@ function Wait-VMState {
         }
         Start-Sleep -Seconds 3
     }
-}
-
-function Set-VMResourceProfile {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][psobject]$VM,
-        [Parameter(Mandatory)][ValidateRange(1,1024)][int]$ProcessorCount,
-        [Parameter(Mandatory)][ValidateSet(0,1,2)][int]$HwThreadCountPerCore,
-        [Parameter(Mandatory)][ValidateRange(0,[long]::MaxValue)][long]$MaximumIOPS
-    )
-    $taskVM = Get-VM -Name $VM.Name -ErrorAction Stop
-    if ($taskVM.State -notin 'Off', 'Running') { throw '停止中または起動中のVMを指定してください。' }
-    $taskProcessor = Get-VMProcessor -VM $taskVM
-    $taskChangeCPU = $taskProcessor.Count -ne $ProcessorCount -or $taskProcessor.HwThreadCountPerCore -ne $HwThreadCountPerCore
-    $taskRestart = $taskChangeCPU -and $taskVM.State -eq 'Running'
-    if ($taskRestart) {
-        Stop-VM -VM $taskVM
-        Wait-VMState -VMName $taskVM.Name -State Off -TimeoutMinutes 5
-    }
-    if ($taskChangeCPU) { Set-VMProcessor -VM $taskVM -Count $ProcessorCount -HwThreadCountPerCore $HwThreadCountPerCore }
-    Get-VMHardDiskDrive -VM $taskVM | Set-VMHardDiskDrive -MaximumIOPS $MaximumIOPS
-    if ($taskRestart) { Start-VM -VM $taskVM }
 }

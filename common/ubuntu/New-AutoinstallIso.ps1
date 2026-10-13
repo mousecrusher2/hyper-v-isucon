@@ -1,4 +1,4 @@
-#requires -Version 7.3
+#requires -Version 7.4
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$SourceIsoPath,
@@ -28,7 +28,7 @@ try {
     }
     $taskLinuxIso = Get-IsoContainerPath -Container $IsoContainer -Path $taskIso
     & wslc.exe exec $IsoContainer.Name sh /tool/ubuntu/prepare-autoinstall-iso.sh $taskLinuxIso `
-        2>&1 | Tee-Object -FilePath $taskLog -Append | ForEach-Object { Write-Host $_ }
+        2>&1 | Tee-Object -FilePath $taskLog -Append | Out-Host
     if ($LASTEXITCODE -ne 0) {
         if (Test-Path -LiteralPath $taskIso) { Remove-Item -LiteralPath $taskIso }
         throw "インストール用ISOの準備に失敗しました。ログ: $taskLog"

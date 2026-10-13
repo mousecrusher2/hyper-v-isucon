@@ -15,20 +15,17 @@ sudo -n cloud-init status --wait --long
 sudo -n apt-get update
 sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y ansible ca-certificates curl git gnupg liblzma-dev make snapd xz-utils
 
-if test "$role" = application; then
-    sudo -n mkdir -p /etc/apt/keyrings
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key |
-        sudo -n gpg --batch --yes --dearmor -o /etc/apt/keyrings/nodesource.gpg
-    printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main' |
-        sudo -n tee /etc/apt/sources.list.d/nodesource.list >/dev/null
-    sudo -n apt-get update
-    sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
-    sudo -n npm install -g pnpm@9.15.9
-else
-    sudo -n snap wait system seed.loaded
-    sudo -n snap install go --channel=1.23/stable --classic
-    export PATH="/snap/bin:$PATH"
-fi
+sudo -n mkdir -p /etc/apt/keyrings
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key |
+    sudo -n gpg --batch --yes --dearmor -o /etc/apt/keyrings/nodesource.gpg
+printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main' |
+    sudo -n tee /etc/apt/sources.list.d/nodesource.list >/dev/null
+sudo -n apt-get update
+sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
+sudo -n npm install -g pnpm@9.15.9 @go-task/cli
+sudo -n snap wait system seed.loaded
+sudo -n snap install go --channel=1.23/stable --classic
+export PATH="/snap/bin:$PATH"
 
 if test ! -d /home/ubuntu/isucon14/.git; then
     git clone --depth 1 https://github.com/isucon/isucon14.git /home/ubuntu/isucon14
@@ -48,33 +45,17 @@ if test "$role" = application; then
     sed -i 's/curl -s https:/curl -k -s https:/' provisioning/ansible/roles/webapp/files/isuride-matcher.service
     tls_dir=provisioning/ansible/roles/nginx/files/etc/nginx/tls
     cp /home/ubuntu/tls/* "$tls_dir/"
-
-    make -C frontend
-    mkdir -p webapp/public provisioning/ansible/roles/webapp/files
-    cp -r frontend/build/client/. webapp/public/
-    tar -zcf provisioning/ansible/roles/webapp/files/webapp.tar.gz webapp
-
-    sudo -n npm uninstall -g pnpm
-    sudo -n env DEBIAN_FRONTEND=noninteractive apt-get purge -y nodejs
-    sudo -n rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/keyrings/nodesource.gpg
-else
-    client=bench/benchmarker/webapp/client.go
-    if ! grep -Fq '"crypto/tls"' "$client"; then
-        sed -i '/"context"/a\	"crypto/tls"' "$client"
-    fi
-    if ! grep -Fq 'InsecureSkipVerify: true' "$client"; then
-        sed -i '/trs := agent.DefaultTransport.Clone()/a\	trs.TLSClientConfig = \&tls.Config{InsecureSkipVerify: true}' "$client"
-    fi
-    gofmt -w "$client"
-    mkdir -p provisioning/ansible/roles/bench/files
-    (
-        cd bench
-        GOOS=linux GOARCH=amd64 go build -ldflags '-s -w' \
-            -o ../provisioning/ansible/roles/bench/files/bench_linux_amd64
-    )
-    sudo -n snap remove --purge go
-    hash -r
 fi
+
+# The official script copies build/client into public; start with a fresh destination.
+rm -rf webapp/public
+bash provisioning/ansible/make_latest_files.sh
+
+sudo -n snap remove --purge go
+hash -r
+sudo -n npm uninstall -g pnpm @go-task/cli
+sudo -n env DEBIAN_FRONTEND=noninteractive apt-get purge -y nodejs
+sudo -n rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/keyrings/nodesource.gpg
 
 cd provisioning/ansible
 ansible-playbook -i inventory/localhost --limit "$role" "${playbooks[@]}"

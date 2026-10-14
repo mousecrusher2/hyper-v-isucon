@@ -39,11 +39,7 @@ function New-UnattendedVM {
     Disable-VMIntegrationService -VM $taskVM -Name VSS
     Disable-VMConsoleSupport -VMName $Name
     foreach ($taskNic in Get-VMNetworkAdapter -VM $taskVM) {
-        do {
-            $taskMac = Get-RandomMACAddress
-            $taskExistingMacs = @((Get-VM | Get-VMNetworkAdapter).MacAddress) + @((Get-VMNetworkAdapter -ManagementOS).MacAddress)
-        } while ($taskMac -in $taskExistingMacs)
-        Set-VMNetworkAdapter -VMNetworkAdapter $taskNic -StaticMacAddress $taskMac
+        Set-VMNetworkAdapter -VMNetworkAdapter $taskNic -StaticMacAddress (Get-RandomMACAddress)
     }
     $taskVM
 }

@@ -23,7 +23,7 @@
 
 ## 構築
 
-管理者権限の PowerShell 7 で実行します。
+管理者権限の PowerShell 7 で実行します。新規構築用のため、出力先には未使用のディレクトリを指定してください。
 
 ```powershell
 $outputPath = 'D:\isucon13'
@@ -85,21 +85,6 @@ cd /home/ubuntu/isucon13/bench
 
 - 初期化・整合性チェックのみ: `--pretest-only` を追加
 - 結果出力先: `/tmp/result.json`
-
-## プロビジョニングの再実行
-
-対象 VM を起動した状態で実行します。**※ アプリ VM の DB・コード・証明書は初期化されます。**
-
-```powershell
-$outputPath = 'D:\isucon13'
-# アプリ VM
-.\isucon13\provision.ps1 -VMName 'isucon13-app01' -OutputPath $outputPath
-
-# ベンチ VM
-.\isucon13\provision.ps1 -VMName 'isucon13-bench' -OutputPath $outputPath -Role benchmarker
-```
-
-ログは `$outputPath\logs` に保存されます。
 
 ## ローカル環境用の調整
 

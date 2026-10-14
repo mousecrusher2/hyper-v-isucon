@@ -11,7 +11,7 @@ xorriso -no_rc -osirrox on -indev /input/source.iso \
 sed -E '
   /^[[:space:]]*set timeout=/s/=.*/=0/
   /^[[:space:]]*linux[[:space:]]/ {
-    /[[:space:]]autoinstall([[:space:]]|$)/! s/[[:space:]]+---([[:space:]]|$)/ autoinstall ---\1/
+    s/[[:space:]]+---([[:space:]]|$)/ autoinstall ---\1/
   }
 ' "$task_work/grub.cfg" > "$task_work/grub-autoinstall.cfg"
 grep -Eq '^[[:space:]]*set timeout=0([[:space:]]|$)' "$task_work/grub-autoinstall.cfg"

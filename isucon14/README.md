@@ -23,7 +23,7 @@
 
 ## 構築
 
-管理者権限の PowerShell 7 で実行します。
+管理者権限の PowerShell 7 で実行します。新規構築用のため、出力先には未使用のディレクトリを指定してください。
 
 ```powershell
 $outputPath = 'D:\isucon14'
@@ -90,21 +90,6 @@ curl.exe --noproxy '*' --insecure --resolve isuride.xiv.isucon.test:443:192.168.
 - `-t 0`: 初期化・整合性チェックのみ
 - `--skip-static-sanity-check`: 静的ファイルのハッシュ不一致時にスキップ（静的ファイル取得も省略されます）
 
-## プロビジョニングの再実行
-
-対象 VM を起動した状態で実行します。**※ アプリ VM の DB・コード・証明書は初期化されます。**
-
-```powershell
-$outputPath = 'D:\isucon14'
-# アプリ VM
-.\isucon14\provision.ps1 -VMName 'isucon14-app01' -OutputPath $outputPath
-
-# ベンチ VM
-.\isucon14\provision.ps1 -VMName 'isucon14-bench' -OutputPath $outputPath -Role benchmarker
-```
-
-ログは `$outputPath\logs` に保存されます。
-
 ## ローカル環境用の調整
 
 - **プロビジョニング**: `provision.sh` 内でアプリは `application-base.yml` → `application.yml`、ベンチは `benchmark.yml` を実行します。
@@ -112,7 +97,7 @@ $outputPath = 'D:\isucon14'
 - **APT 設定**: Ubuntu 24.04 の deb822 設定（`ubuntu.sources`）に合わせて対象パスを調整しています。
 - **ドメイン / 証明書**: `xiv.isucon.net` を `xiv.isucon.test` に置換し、固定証明書を配置します。`isuride-matcher` の `curl` には `-k` を付与します。
 - **VM リソース**: 作成時から指定の vCPU と IOPS 制限を適用し、プロビジョニング時のリソース切り替えや再起動は行いません。
-- **ベンチ / 静的ファイル**: ベンチマーカーの証明書検証は公式実装の既定動作で省略されます。再実行時にも `webapp/public` へファイルをコピーします。
+- **ベンチ / 静的ファイル**: ベンチマーカーの証明書検証は公式実装の既定動作で省略されます。
 - **除外ロール**: 運営用の `isuadmin-user` と AWS 向けの `envcheck` は除外しています。
 
 ## TLS チェーンの再現

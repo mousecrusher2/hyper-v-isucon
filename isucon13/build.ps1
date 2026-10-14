@@ -9,9 +9,9 @@ param(
     [string]$SwitchName = 'Default Switch',
     [string]$InternalSwitchName = 'ISUCON13',
     [string]$NetworkPrefix = '192.168.13.0/24',
-    [Alias('MemoryMaximumBytes')][ValidateRange(2GB, [long]::MaxValue)][long]$MemoryBytes = 4GB,
+    [ValidateRange(2GB, [long]::MaxValue)][long]$MemoryBytes = 4GB,
     [ValidateRange(1,1024)][int]$ProcessorCount = 2,
-    [Alias('BenchmarkerMemoryMaximumBytes')][ValidateRange(2GB, [long]::MaxValue)][long]$BenchmarkerMemoryBytes = 4GB,
+    [ValidateRange(2GB, [long]::MaxValue)][long]$BenchmarkerMemoryBytes = 4GB,
     [ValidateRange(1,1024)][int]$BenchmarkerProcessorCount = 8,
     [ValidateRange(5,120)][int]$TimeoutMinutes = 45
 )
@@ -35,5 +35,4 @@ $taskMachines = @(
 )
 & "$taskCommonRoot\engine\Invoke-ContestBuild.ps1" -IsoPath $IsoPath -OutputPath $OutputPath -Machines $taskMachines `
     -InstallScriptPath (Join-Path $PSScriptRoot 'install.ps1') -ProvisionScriptPath (Join-Path $PSScriptRoot 'provision.ps1') `
-    -PrepareIsoScriptPath "$taskCommonRoot\ubuntu\New-AutoinstallIso.ps1" -SwitchName $SwitchName `
-    -InternalSwitchName $InternalSwitchName -NetworkPrefix $NetworkPrefix -TimeoutMinutes $TimeoutMinutes
+    -SwitchName $SwitchName -InternalSwitchName $InternalSwitchName -NetworkPrefix $NetworkPrefix -TimeoutMinutes $TimeoutMinutes

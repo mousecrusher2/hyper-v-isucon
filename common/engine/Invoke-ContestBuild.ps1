@@ -40,13 +40,20 @@ $taskJobs = @()
 $taskIsoContainer = $null
 $taskInstallIso = $taskIso
 try {
-    $taskIsoLog = Join-Path $taskOutputRoot "logs\iso-$([guid]::NewGuid()).log"
-    $taskIsoContainer = Start-IsoContainer -OutputPath (Join-Path $taskOutputRoot 'vm') -SourceIsoPath $taskIso -LogPath $taskIsoLog
-    if ($PrepareIsoScriptPath) {
-        $taskInstallIso = Join-Path $taskOutputRoot "vm\install-$([guid]::NewGuid()).iso"
-        & $PrepareIsoScriptPath -SourceIsoPath $taskIso -IsoPath $taskInstallIso -LogPath $taskIsoLog -IsoContainer $taskIsoContainer
-    }
+    # Validate and configure the network before starting expensive ISO preparation.
     $taskNetwork = & "$taskCommonRoot\hyperv\Initialize-Network.ps1" -SwitchName $InternalSwitchName -NetworkPrefix $NetworkPrefix -AddressCount $Machines.Count
+    try {
+        $taskIsoLog = Join-Path $taskOutputRoot "logs\iso-$([guid]::NewGuid()).log"
+        $taskIsoContainer = Start-IsoContainer -OutputPath (Join-Path $taskOutputRoot 'vm') -SourceIsoPath $taskIso -LogPath $taskIsoLog
+        if ($PrepareIsoScriptPath) {
+            $taskInstallIso = Join-Path $taskOutputRoot "vm\install-$([guid]::NewGuid()).iso"
+            & $PrepareIsoScriptPath -SourceIsoPath $taskIso -IsoPath $taskInstallIso -LogPath $taskIsoLog -IsoContainer $taskIsoContainer
+        }
+    } catch {
+        # No VM workers have started, so the newly created switch is safe to remove.
+        Get-VMSwitch -Name $InternalSwitchName -ErrorAction Stop | Remove-VMSwitch -Force -ErrorAction Stop
+        throw
+    }
     for ($taskIndex = 0; $taskIndex -lt $Machines.Count; $taskIndex++) {
         $taskMachine = $Machines[$taskIndex]
         $taskIP = $taskNetwork.VMAddresses[$taskIndex]
@@ -73,6 +80,21 @@ try {
         $taskJobs | Where-Object State -in 'NotStarted','Running' | Stop-Job
         $taskJobs | Remove-Job
     } finally {
-        if ($taskIsoContainer) { Stop-IsoContainer -Container $taskIsoContainer }
+        try {
+            if ($taskIsoContainer) { Stop-IsoContainer -Container $taskIsoContainer }
+        } finally {
+            if ($taskInstallIso -ne $taskIso -and (Test-Path -LiteralPath $taskInstallIso)) {
+                try {
+                    $taskMountedDVDs = @(Get-VM -ErrorAction Stop | Get-VMDvdDrive -ErrorAction Stop |
+                        Where-Object Path -eq $taskInstallIso)
+                    if ($taskMountedDVDs.Count) {
+                        Write-Warning "構築用ISOはVMが使用しているため残しています: $taskInstallIso"
+                    } else {
+                        Remove-Item -LiteralPath $taskInstallIso -ErrorAction Stop
+                    }
+                } catch {
+                }
+            }
+        }
     }
 }

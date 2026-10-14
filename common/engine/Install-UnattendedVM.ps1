@@ -80,6 +80,9 @@ Start-VM -VM $taskVM
 Write-Host "OSインストール完了時の停止を待っています: $Name"
 Wait-VMState -VMName $Name -State Off -TimeoutMinutes $TimeoutMinutes
 Set-VMDiskBoot -VM $taskVM
+# Hyper-V DVD removal must run in a different process from VM creation, while the VM is off.
+& pwsh -NoProfile -Command "Get-VM -Id '$($taskVM.Id)' -ErrorAction Stop | Get-VMDvdDrive -ErrorAction Stop | Remove-VMDvdDrive -ErrorAction Stop"
+if ($LASTEXITCODE -ne 0) { throw "VM $Name の仮想DVDドライブの削除に失敗しました (exit=$LASTEXITCODE)。" }
 Start-VM -VM $taskVM
 
 $taskConnection = New-GuestSSHConnection -VMName $Name -UserName $GuestUserName -IdentityFile $taskKey.IdentityFile `
@@ -87,9 +90,6 @@ $taskConnection = New-GuestSSHConnection -VMName $Name -UserName $GuestUserName 
 $taskIP = Wait-GuestSSH -Connection $taskConnection -AdapterName $InternalAdapterName
 $taskLog = Join-Path $taskOutputRoot "logs\install-$Name-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 Invoke-GuestCommand -Connection $taskConnection -Command $taskVerify -LogPath $taskLog
-# Hyper-V DVD removal must run in a different process from VM creation.
-& pwsh -NoProfile -Command "Get-VM -Id '$($taskVM.Id)' -ErrorAction Stop | Get-VMDvdDrive -ErrorAction Stop | Remove-VMDvdDrive -ErrorAction Stop"
-if ($LASTEXITCODE -ne 0) { throw "VM $Name の仮想DVDドライブの削除に失敗しました (exit=$LASTEXITCODE)。" }
 [pscustomobject]@{
     Name = $Name
     VMId = $taskVM.Id

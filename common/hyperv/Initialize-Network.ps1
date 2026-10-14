@@ -27,7 +27,15 @@ $taskHostIP = $taskIPs[0].ToString()
 
 $taskSwitch = New-VMSwitch -Name $SwitchName -SwitchType Internal -ErrorAction Stop
 try {
-    $taskAdapter = Get-NetAdapter -Name "vEthernet ($SwitchName)" -ErrorAction Stop
+    $taskDeadline = (Get-Date).AddSeconds(30)
+    while ($true) {
+        $taskAdapter = Get-NetAdapter -Name "vEthernet ($SwitchName)" -ErrorAction SilentlyContinue
+        if ($taskAdapter) { break }
+        if ((Get-Date) -ge $taskDeadline) {
+            throw "仮想アダプター vEthernet ($SwitchName) の認識待ちがタイムアウトしました。"
+        }
+        Start-Sleep -Milliseconds 500
+    }
     New-NetIPAddress -InterfaceIndex $taskAdapter.ifIndex -IPAddress $taskHostIP -PrefixLength $taskNetwork.PrefixLength -ErrorAction Stop | Out-Null
 } catch {
     Remove-VMSwitch -VMSwitch $taskSwitch -Force -ErrorAction Stop
